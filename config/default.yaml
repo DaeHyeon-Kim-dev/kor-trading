@@ -1,0 +1,150 @@
+# Kor Trading Agent — 기본 설정
+# 변경 후 재실행하면 즉시 반영됨 (서브에이전트가 이 파일을 로드)
+
+# ────────────────────────────────────────────
+# 1. 실행 주기
+# ────────────────────────────────────────────
+schedule:
+  # 실행 간격 (초). launchd plist의 StartInterval과 동기화 필요.
+  # 5분=300, 10분=600, 30분=1800, 1시간=3600
+  interval_seconds: 3600
+
+  # 활성 시간대 (KST, 24시간). 이 범위 밖에서는 실행 스킵.
+  # 한국 정규장: 09:00~15:30. 시간외+공시 고려해 08:30~16:30 권장.
+  active_hours_kst:
+    start: "08:30"
+    end: "16:30"
+
+  # 활성 요일 (1=월 ~ 7=일). 평일만.
+  active_weekdays: [1, 2, 3, 4, 5]
+
+# ────────────────────────────────────────────
+# 2. 종목 선정 기준 (Stock Selector Agent)
+# ────────────────────────────────────────────
+selection:
+  # 거래대금 상위 N (✅ 확정)
+  top_volume_n: 50
+
+  # 급등 상위 N (등락률 기준 양수 상위)
+  surge_top_n: 10
+
+  # 급락 상위 N (등락률 기준 음수 상위 = 하락폭 큰 순)
+  plunge_top_n: 10
+
+  # 시가총액 하한 (원). 500억 = 50_000_000_000
+  market_cap_min_krw: 50_000_000_000
+
+  # 제외 옵션
+  exclude:
+    preferred_shares: true   # 우선주
+    spacs: true              # 스팩
+    etfs: true               # ETF
+    etns: true               # ETN
+    managed: true            # 관리종목
+    investment_caution: false # 투자주의 종목 (true면 제외)
+
+  # 후보 최대 수 (지표·이슈 분석은 비용이 있으므로 cap)
+  max_candidates: 30
+
+# ────────────────────────────────────────────
+# 3. 지표 분석 (Indicator Analyst Agent)
+# ────────────────────────────────────────────
+indicators:
+  ohlcv_lookback_days: 120  # 지표 계산용 과거 데이터 기간
+
+  sma_periods: [5, 20, 60, 120]
+  macd: { fast: 12, slow: 26, signal: 9 }
+  rsi_period: 14
+  stoch: { k: 14, d: 3, smooth: 3 }
+  bbands: { period: 20, std: 2 }
+  atr_period: 14
+
+  foreign_institution_lookback: [5, 20]  # 누적 일수
+
+  # 종합 점수 가중치 (docs/INDICATORS.md § 9 참조)
+  score_weights:
+    trend: 0.25
+    momentum: 0.20
+    volatility: 0.10
+    volume: 0.15
+    flow: 0.30  # 한국 수급 (외국인/기관)
+
+# ────────────────────────────────────────────
+# 4. 이슈 분석 (Issue Analyst Agent)
+# ────────────────────────────────────────────
+news:
+  lookback_days: 7
+
+  sources:
+    dart:
+      enabled: true
+      priority: 1            # ✅ 확정 — 1순위 (가장 신뢰)
+      # 주목할 공시 유형
+      target_reports:
+        - "주요사항보고"
+        - "정기공시"
+        - "발행공시"          # 유상증자, CB
+        - "지분공시"
+        - "기타공시"
+    naver_finance:
+      enabled: false          # 약관 검토 후 활성화
+      priority: 2
+    rss:
+      enabled: false          # 추후 추가
+      priority: 3
+      feeds: []
+
+  max_issues_per_ticker: 20
+
+  # 시점 기반 가중치 (✅ 확정) — 공시·뉴스가 며칠 전인지에 따라 영향력 감쇠
+  recency_decay:
+    today: 1.00          # 0일
+    days_1_to_2: 0.85
+    days_3_to_7: 0.60
+    days_8_to_14: 0.30
+    days_15_plus: 0.10
+
+  # 4관점별 뉴스 윈도우 (관점에서 고려할 최대 recency_days)
+  horizon_recency_window:
+    ultra_short: 3
+    short: 7
+    medium: 14
+    long: 30   # 장기는 개별 뉴스보다 산업·재무 흐름 우선
+
+# ────────────────────────────────────────────
+# 5. 리포트 (Reporter Agent)
+# ────────────────────────────────────────────
+reporting:
+  # 시간 관점 (✅ 확정 — 4개 관점 모두 리포트에 포함)
+  time_horizons:
+    - id: ultra_short
+      label: "초단기"
+      period: "당일~3일"
+    - id: short
+      label: "단기"
+      period: "1주~1개월"
+    - id: medium
+      label: "중기"
+      period: "1~3개월"
+    - id: long
+      label: "장기"
+      period: "3개월+"
+
+  # 추천 단계
+  recommendation_levels:
+    - { id: strong_buy,  label: "🟢🟢 Strong Buy",  threshold: 0.5 }
+    - { id: buy,         label: "🟢 Buy",           threshold: 0.2 }
+    - { id: hold,        label: "🟡 Hold/Watch",    threshold: -0.2 }
+    - { id: sell,        label: "🔴 Sell",          threshold: -0.5 }
+    - { id: strong_sell, label: "🔴🔴 Strong Sell", threshold: -1.0 }
+
+  telegram:
+    split_by_ticker: true   # 종목별로 메시지 분리
+    attach_md: true         # 마크다운 본문 .md로 첨부
+    interval_ms: 100        # 메시지 간 sleep (rate limit 회피)
+
+  history:
+    # 모든 리포트와 근거 마크다운을 보존 (✅ 확정 — 추후 개선용)
+    keep_forever: true
+    base_path: "data/reports"
+    # 디렉토리 구조: {base_path}/{YYYY-MM-DD}/{HHmm}/
