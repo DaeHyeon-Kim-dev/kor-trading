@@ -17,6 +17,16 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
+# uv / build artifacts
+dist/
+build/
+*.whl
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+
 # OS
 .DS_Store
 Thumbs.db
