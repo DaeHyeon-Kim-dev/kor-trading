@@ -801,7 +801,80 @@ uv run pre-commit install
 
 ---
 
-## 18. 안티 패턴 (피해야 할 것)
+## 18. PR / 브랜치 워크플로우 ⭐
+
+### 18.1 원칙
+- **모든 작업은 적절한 단위로 PR로 분리**한다. **main 직접 푸시 금지**.
+- 한 PR = 한 가지 일. "지표 분석 + 텔레그램 수정"처럼 두 가지 섞지 말 것.
+- 큰 작업은 같은 task에서 여러 PR로 쪼개고, PR 제목의 끝 번호로 순서를 표시한다.
+
+### 18.2 브랜치 명명
+- `feat/<영문 슬러그>` — 새 기능
+- `fix/<영문 슬러그>` — 버그 수정
+- `chore/<영문 슬러그>` — 설정/문서/리팩터링
+- `test/<영문 슬러그>` — 테스트만 추가
+
+예) `feat/stock-selector-top-volume`, `chore/pr-template`
+
+### 18.3 PR 제목 형식 (✅ 확정)
+```
+[task 번호]-task 제목-번호
+```
+- `task 번호`: 작업 트래킹 번호 (없으면 `0` = 셋업/잡일)
+- `task 제목`: 한국어 또는 영어, 간결하게
+- 끝의 `번호`: 같은 task가 여러 PR로 쪼개진 경우 순번 (단일 PR이면 `1`)
+
+예시
+- `[1]-도메인 엔티티 구현-1`
+- `[1]-도메인 엔티티 구현-2` (같은 task의 2번째 PR)
+- `[3]-Stock Selector 유스케이스-1`
+- `[0]-PR 템플릿 도입-1`
+
+### 18.4 PR 본문 (`.github/PULL_REQUEST_TEMPLATE.md` 자동 적용)
+4개 섹션을 **반드시** 모두 채운다:
+
+1. **관련 컨텍스트** — 관련 PRD 섹션, 이슈 번호, 배경 결정
+2. **목적** — 이 PR이 달성하려는 것 (WHY)
+3. **변경사항 요약** — 무엇이 어떻게 바뀌었는지 (WHAT, 파일/모듈 단위)
+4. **이슈 & 고민** — 미해결 사항, 후속 작업, 트레이드오프, 리뷰 요청
+
+각 섹션에 항목이 여러 개면 `### 1.`, `### 2.` 식으로 번호 매김.
+
+### 18.5 PR 크기 가이드
+- **이상적**: 200~400 라인 변경
+- 800라인 넘으면 분할 고려
+- **문서만 변경**하는 PR은 1000라인 넘어도 OK
+
+### 18.6 머지 정책
+- pre-commit 통과 필수 (ruff + mypy)
+- 모든 테스트 green
+- (추후) CI green
+- **Squash merge 권장** — main 히스토리 깔끔하게
+
+### 18.7 워크플로우 예시
+```bash
+# 1. main 최신화
+git checkout main && git pull
+
+# 2. 브랜치 생성
+git checkout -b feat/stock-selector-top-volume
+
+# 3. TDD 사이클 반복 → 변경 커밋
+# (작은 커밋 여러 개 OK — squash로 정리됨)
+
+# 4. push
+git push -u origin feat/stock-selector-top-volume
+
+# 5. PR 생성 (gh CLI)
+gh pr create --title "[3]-Stock Selector 유스케이스-1" --body "..."
+
+# 6. 리뷰 + 머지 후 브랜치 정리
+git checkout main && git pull && git branch -d feat/stock-selector-top-volume
+```
+
+---
+
+## 19. 안티 패턴 (피해야 할 것)
 
 ❌ **god object**: 하나의 유스케이스가 5개 이상의 어댑터에 의존 → 분할 필요
 ❌ **anemic domain**: 엔티티가 getter/setter만 있고 로직은 service에 있음 → 엔티티에 로직 넣기
@@ -813,7 +886,7 @@ uv run pre-commit install
 
 ---
 
-## 19. 참고 자료
+## 20. 참고 자료
 
 - Robert C. Martin, "Clean Architecture"
 - Alistair Cockburn, "Hexagonal architecture" 원문
@@ -825,5 +898,6 @@ uv run pre-commit install
 
 ---
 
-## 20. 변경 이력
+## 21. 변경 이력
+- 2026-05-26: v0.2 — § 18 **PR / 브랜치 워크플로우** 신설 (제목 형식, 본문 템플릿, 머지 정책).
 - 2026-05-26: v0.1 — 초안 작성. uv + sync/ThreadPool + Pydantic+dataclass+mypy strict 조합 확정.
