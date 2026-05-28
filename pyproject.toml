@@ -6,6 +6,7 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
+    "pykrx>=1.2.8",
     "pyyaml>=6.0.3",
     "structlog>=25.5.0",
 ]
@@ -45,13 +46,13 @@ warn_unreachable = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["pykrx.*", "FinanceDataReader.*", "pandas_ta.*"]
+module = ["pykrx.*", "FinanceDataReader.*", "pandas_ta.*", "pandas", "pandas.*"]
 ignore_missing_imports = true
 
 # ──────────────────────── pytest ────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra -q --strict-markers --cov=src/kor_trading --cov-report=term-missing"
+addopts = "-ra -q --strict-markers -m 'not integration and not e2e' --cov=src/kor_trading --cov-report=term-missing"
 markers = [
     "integration: requires external services",
     "e2e: end-to-end pipeline tests",
