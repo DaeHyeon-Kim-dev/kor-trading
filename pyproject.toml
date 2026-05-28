@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "한국 주식 트레이딩 보조 멀티 에이전트 시스템"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+    "finance-datareader>=0.9.202",
     "httpx>=0.28.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",

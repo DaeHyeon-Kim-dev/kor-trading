@@ -16,6 +16,8 @@ from kor_trading.domain.entities.ticker import Market, Ticker
 if TYPE_CHECKING:
     from datetime import date
 
+    from kor_trading.domain.ports.ticker_name_resolver import TickerNameResolver
+
 
 log = structlog.get_logger()
 
@@ -38,8 +40,13 @@ def _default_stock_module() -> _PykrxStockModule:  # pragma: no cover
 class PykrxMarketSnapshotProvider:
     """KRX 데이터 fetch → StockSnapshot 리스트로 변환."""
 
-    def __init__(self, stock_module: _PykrxStockModule | None = None) -> None:
+    def __init__(
+        self,
+        stock_module: _PykrxStockModule | None = None,
+        name_resolver: TickerNameResolver | None = None,
+    ) -> None:
         self._stock = stock_module if stock_module is not None else _default_stock_module()
+        self._name_resolver = name_resolver
 
     def get_market_snapshots(self, markets: tuple[Market, ...], as_of: date) -> list[StockSnapshot]:
         date_str = as_of.strftime("%Y%m%d")
@@ -70,7 +77,8 @@ class PykrxMarketSnapshotProvider:
                 continue
             cap_row = cap_df.loc[code]
             try:
-                ticker = Ticker(code=code, name=code, market=market)
+                resolved_name = self._name_resolver.get_name(code) if self._name_resolver else None
+                ticker = Ticker(code=code, name=resolved_name or code, market=market)
                 snap = StockSnapshot(
                     ticker=ticker,
                     as_of=as_of,
