@@ -8,6 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from kor_trading.adapters.outbound.fdr_ticker_name_resolver import (
+    FinanceDataReaderNameResolver,
+)
 from kor_trading.adapters.outbound.filesystem_report_repository import (
     FileSystemReportRepository,
 )
@@ -36,7 +39,8 @@ def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -
     """Composition Root: 어댑터 ↔ 유스케이스 연결."""
     _ = config  # 추후 use case별 옵션 주입 시 사용
 
-    market_provider = PykrxMarketSnapshotProvider()
+    name_resolver = FinanceDataReaderNameResolver()
+    market_provider = PykrxMarketSnapshotProvider(name_resolver=name_resolver)
     ohlcv_provider = PykrxOhlcvProvider()
     repository = FileSystemReportRepository(base_path=data_base_path / "reports")
     notifier = TelegramNotifier(

@@ -175,3 +175,33 @@ class TestProtocolConformance:
         fake = _FakePykrxStock()
         provider = PykrxMarketSnapshotProvider(stock_module=fake)
         assert isinstance(provider, MarketSnapshotProvider)
+
+
+class _NameResolverStub:
+    def __init__(self, mapping: dict[str, str]) -> None:
+        self._mapping = mapping
+
+    def get_name(self, ticker_code: str) -> str | None:
+        return self._mapping.get(ticker_code)
+
+
+class TestNameResolverIntegration:
+    def test_resolves_ticker_name_when_resolver_present(self) -> None:
+        fake = _FakePykrxStock(
+            ohlcv={"KOSPI": _ohlcv_df([("005930", 78500, 5.2, 1, 1_000)])},
+            cap={"KOSPI": _cap_df([("005930", 469_000_000_000_000)])},
+        )
+        resolver = _NameResolverStub({"005930": "삼성전자"})
+        provider = PykrxMarketSnapshotProvider(stock_module=fake, name_resolver=resolver)
+        snapshots = provider.get_market_snapshots(("KOSPI",), AS_OF)
+        assert snapshots[0].ticker.name == "삼성전자"
+
+    def test_falls_back_to_code_when_resolver_returns_none(self) -> None:
+        fake = _FakePykrxStock(
+            ohlcv={"KOSPI": _ohlcv_df([("005930", 78500, 5.2, 1, 1_000)])},
+            cap={"KOSPI": _cap_df([("005930", 469_000_000_000_000)])},
+        )
+        resolver = _NameResolverStub({})  # 매핑 없음
+        provider = PykrxMarketSnapshotProvider(stock_module=fake, name_resolver=resolver)
+        snapshots = provider.get_market_snapshots(("KOSPI",), AS_OF)
+        assert snapshots[0].ticker.name == "005930"
