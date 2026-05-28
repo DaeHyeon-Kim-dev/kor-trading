@@ -3,7 +3,11 @@ name = "kor-trading"
 version = "0.1.0"
 description = "한국 주식 트레이딩 보조 멀티 에이전트 시스템"
 requires-python = ">=3.11,<3.13"
-dependencies = []
+dependencies = [
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "pyyaml>=6.0.3",
+]
 
 [build-system]
 requires = ["uv_build>=0.11.16,<0.12.0"]
@@ -16,6 +20,7 @@ dev = [
     "mypy>=1.10",
     "ruff>=0.6",
     "pre-commit>=3.7",
+    "types-pyyaml>=6.0.12.20260518",
 ]
 
 # ──────────────────────── ruff ────────────────────────
