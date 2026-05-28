@@ -14,7 +14,13 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from kor_trading.domain.entities.indicator_snapshot import IndicatorSnapshot
+from kor_trading.domain.entities.indicator_snapshot import (
+    BollingerPosition,
+    IndicatorSnapshot,
+    MacdCross,
+    MacdPosition,
+    SmaAlignment,
+)
 
 if TYPE_CHECKING:
     from kor_trading.domain.entities.ohlcv_bar import OhlcvBar
@@ -31,6 +37,9 @@ _BBANDS_STD = 2.0
 _ATR_PERIOD = 14
 _STOCH_K = 14
 _STOCH_D = 3
+_CROSS_LOOKBACK = 3
+_SQUEEZE_LOOKBACK = 20
+_SQUEEZE_RATIO = 0.7
 
 
 def calculate_indicators(ticker: Ticker, bars: list[OhlcvBar]) -> IndicatorSnapshot:
@@ -40,11 +49,19 @@ def calculate_indicators(ticker: Ticker, bars: list[OhlcvBar]) -> IndicatorSnaps
 
     df = _to_dataframe(bars)
     last_date = bars[-1].date
+    last_close = bars[-1].close
 
     sma_values = {p: _sma(df["close"], p) for p in _SMA_PERIODS}
-    macd_val, signal_val, hist_val = _macd(df["close"])
+    sma_alignment = _classify_sma_alignment(
+        sma_values[5], sma_values[20], sma_values[60], sma_values[120]
+    )
+    macd_val, signal_val, hist_val, macd_cross = _macd_with_cross(df["close"])
+    macd_position = _classify_macd_position(macd_val)
     rsi = _rsi(df["close"], _RSI_PERIOD)
-    bb_upper, bb_mid, bb_lower = _bollinger(df["close"], _BBANDS_PERIOD, _BBANDS_STD)
+    bb_upper, bb_mid, bb_lower, bb_squeeze = _bollinger_with_squeeze(
+        df["close"], _BBANDS_PERIOD, _BBANDS_STD
+    )
+    bb_position = _classify_bollinger_position(last_close, bb_upper, bb_mid, bb_lower)
     atr = _atr(df, _ATR_PERIOD)
     stoch_k, stoch_d = _stochastic(df, _STOCH_K, _STOCH_D)
 
@@ -55,15 +72,20 @@ def calculate_indicators(ticker: Ticker, bars: list[OhlcvBar]) -> IndicatorSnaps
         sma_20=sma_values[20],
         sma_60=sma_values[60],
         sma_120=sma_values[120],
+        sma_alignment=sma_alignment,
         macd=macd_val,
         macd_signal=signal_val,
         macd_hist=hist_val,
+        macd_cross=macd_cross,
+        macd_position=macd_position,
         rsi_14=rsi,
         stoch_k=stoch_k,
         stoch_d=stoch_d,
         bb_upper=bb_upper,
         bb_mid=bb_mid,
         bb_lower=bb_lower,
+        bb_position=bb_position,
+        bb_squeeze=bb_squeeze,
         atr_14=atr,
     )
 
@@ -93,16 +115,24 @@ def _ema(close: pd.Series, span: int) -> pd.Series:
     return close.ewm(span=span, adjust=False).mean()
 
 
-def _macd(close: pd.Series) -> tuple[float | None, float | None, float | None]:
+def _macd_with_cross(
+    close: pd.Series,
+) -> tuple[float | None, float | None, float | None, MacdCross | None]:
     needed = _MACD_SLOW + _MACD_SIGNAL
     if len(close) < needed:
-        return None, None, None
+        return None, None, None, None
     fast_ema = _ema(close, _MACD_FAST)
     slow_ema = _ema(close, _MACD_SLOW)
     macd_line = fast_ema - slow_ema
     signal_line = macd_line.ewm(span=_MACD_SIGNAL, adjust=False).mean()
     hist = macd_line - signal_line
-    return float(macd_line.iloc[-1]), float(signal_line.iloc[-1]), float(hist.iloc[-1])
+    cross = _classify_macd_cross(hist)
+    return (
+        float(macd_line.iloc[-1]),
+        float(signal_line.iloc[-1]),
+        float(hist.iloc[-1]),
+        cross,
+    )
 
 
 def _rsi(close: pd.Series, period: int) -> float | None:
@@ -121,16 +151,30 @@ def _rsi(close: pd.Series, period: int) -> float | None:
     return float(value)
 
 
-def _bollinger(
+def _bollinger_with_squeeze(
     close: pd.Series, period: int, std_multiplier: float
-) -> tuple[float | None, float | None, float | None]:
+) -> tuple[float | None, float | None, float | None, bool | None]:
     if len(close) < period:
-        return None, None, None
+        return None, None, None, None
     mid = close.rolling(period).mean()
     std = close.rolling(period).std()
     upper = mid + std_multiplier * std
     lower = mid - std_multiplier * std
-    return float(upper.iloc[-1]), float(mid.iloc[-1]), float(lower.iloc[-1])
+    band_width = upper - lower
+
+    squeeze: bool | None = None
+    if len(close) >= period + _SQUEEZE_LOOKBACK:
+        avg_band_width = band_width.rolling(_SQUEEZE_LOOKBACK).mean().iloc[-1]
+        current_band_width = band_width.iloc[-1]
+        if pd.notna(avg_band_width) and avg_band_width > 0:
+            squeeze = bool(current_band_width <= avg_band_width * _SQUEEZE_RATIO)
+
+    return (
+        float(upper.iloc[-1]),
+        float(mid.iloc[-1]),
+        float(lower.iloc[-1]),
+        squeeze,
+    )
 
 
 def _atr(df: pd.DataFrame, period: int) -> float | None:
@@ -146,6 +190,61 @@ def _atr(df: pd.DataFrame, period: int) -> float | None:
     if pd.isna(value):  # pragma: no cover (defensive — unreachable with >= period+1 bars)
         return None
     return float(value)
+
+
+# ────────────────────────── classifiers ──────────────────────────
+
+
+def _classify_sma_alignment(
+    sma_5: float | None, sma_20: float | None, sma_60: float | None, sma_120: float | None
+) -> SmaAlignment | None:
+    if sma_5 is None or sma_20 is None or sma_60 is None or sma_120 is None:
+        return None
+    if sma_5 > sma_20 > sma_60 > sma_120:
+        return "bullish"
+    if sma_5 < sma_20 < sma_60 < sma_120:
+        return "bearish"
+    return "mixed"
+
+
+def _classify_macd_position(macd_val: float | None) -> MacdPosition | None:
+    if macd_val is None:
+        return None
+    return "above_zero" if macd_val >= 0 else "below_zero"
+
+
+def _classify_macd_cross(hist: pd.Series) -> MacdCross:
+    """최근 lookback 내 hist 부호가 바뀌었는가? (cross 발생 여부)"""
+    valid = hist.dropna()
+    if len(valid) < _CROSS_LOOKBACK + 1:  # pragma: no cover (defensive)
+        return "none"
+    recent = valid.iloc[-(_CROSS_LOOKBACK + 1) :]
+    signs = [1 if v > 0 else (-1 if v < 0 else 0) for v in recent]
+    last_sign = signs[-1]
+    for prev_sign in signs[:-1]:
+        if prev_sign not in (0, last_sign):
+            return "golden_recent" if last_sign > 0 else "dead_recent"
+    return "none"
+
+
+def _classify_bollinger_position(
+    close: int | float,
+    upper: float | None,
+    mid: float | None,
+    lower: float | None,
+) -> BollingerPosition | None:
+    if upper is None or mid is None or lower is None:
+        return None
+    if close > upper:
+        return "above"
+    if close > mid:
+        return "upper_half"
+    if close > lower:
+        return "lower_half"
+    return "below"
+
+
+# ────────────────────────── stochastic ──────────────────────────
 
 
 def _stochastic(
