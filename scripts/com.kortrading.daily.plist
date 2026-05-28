@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS launchd job — Kor Trading 정기 실행.
+
+  설치:
+    cp scripts/com.kortrading.daily.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.kortrading.daily.plist
+
+  주기 변경:
+    StartInterval(초)를 config/default.yaml의 schedule.interval_seconds 와 동기화.
+    5분=300, 10분=600, 30분=1800, 1시간=3600.
+
+  로그:
+    data/cron.log / data/cron.err.log
+
+  주의:
+    - WorkingDirectory와 ProgramArguments의 path를 본인 환경에 맞게 수정.
+    - 절전모드일 때 미발화 → pmset repeat wakeorpoweron MTWRF 08:25:00 권장.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.kortrading.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/daehyeon_kim/.local/bin/uv</string>
+        <string>run</string>
+        <string>--directory</string>
+        <string>/Users/daehyeon_kim/dev/kor_trading</string>
+        <string>python</string>
+        <string>-m</string>
+        <string>kor_trading</string>
+        <string>run</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/daehyeon_kim/dev/kor_trading</string>
+
+    <!-- 1시간 주기 (config/default.yaml의 schedule.interval_seconds와 동일) -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/daehyeon_kim/dev/kor_trading/data/cron.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/daehyeon_kim/dev/kor_trading/data/cron.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/daehyeon_kim/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

@@ -59,23 +59,41 @@ kor_trading/
 
 향후 추가: **Community Sentiment Agent** (네이버 종목토론실, 디시, X 등) — Phase 2
 
-## 빠른 시작 (구현 후)
+## 빠른 시작
 
 ```bash
-# 1. 시크릿 설정
+# 1. uv 설치 + 의존성
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync
+
+# 2. 시크릿 설정
 cp .env.example .env
-$EDITOR .env  # TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DART_API_KEY 입력
+$EDITOR .env  # TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DART_API_KEY
 
-# 2. 의존성 설치 (TBD)
-pip install -r requirements.txt
+# 3. 수동 실행 (활성 시간/요일 무관하게 강제 실행)
+uv run python -m kor_trading run --force
 
-# 3. 수동 1회 실행
-claude -p "오늘의 한국 주식 분석을 실행"
-
-# 4. 자동화 (launchd)
+# 4. 자동화 (macOS launchd)
+$EDITOR scripts/com.kortrading.daily.plist  # 경로/주기 본인 환경에 맞게
 cp scripts/com.kortrading.daily.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.kortrading.daily.plist
+
+# 절전 모드 우회 (전원 연결 시 평일 08:25 자동 wake)
+sudo pmset repeat wakeorpoweron MTWRF 08:25:00
 ```
+
+## CLI 옵션
+
+```bash
+uv run python -m kor_trading run [OPTIONS]
+  --config / -c   설정 파일 경로 (기본: config/default.yaml)
+  --data / -d     저장 베이스 디렉토리 (기본: data)
+  --date          분석 기준일 YYYY-MM-DD (기본: 오늘)
+  --log-level     INFO | DEBUG | WARNING ...
+  --force         active_hours/weekdays 체크 무시
+```
+
+활성 시간/요일 밖에서 호출되면 \`OUT_OF_HOURS — skip\`을 출력하고 종료.
 
 ## 문서
 
