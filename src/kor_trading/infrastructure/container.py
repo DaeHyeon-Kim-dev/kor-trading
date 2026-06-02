@@ -14,6 +14,7 @@ from kor_trading.adapters.outbound.fdr_ticker_name_resolver import (
 from kor_trading.adapters.outbound.filesystem_report_repository import (
     FileSystemReportRepository,
 )
+from kor_trading.adapters.outbound.pykrx_investor_flow import PykrxInvestorFlowProvider
 from kor_trading.adapters.outbound.pykrx_market_snapshot import (
     PykrxMarketSnapshotProvider,
 )
@@ -42,13 +43,16 @@ def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -
     name_resolver = FinanceDataReaderNameResolver()
     market_provider = PykrxMarketSnapshotProvider(name_resolver=name_resolver)
     ohlcv_provider = PykrxOhlcvProvider()
+    flow_provider = PykrxInvestorFlowProvider()
     repository = FileSystemReportRepository(base_path=data_base_path / "reports")
     notifier = TelegramNotifier(
         bot_token=secrets.telegram_bot_token, chat_id=secrets.telegram_chat_id
     )
 
     select_uc = SelectStocksUseCase(market_snapshots=market_provider)
-    analyze_uc = AnalyzeIndicatorsUseCase(ohlcv_provider=ohlcv_provider)
+    analyze_uc = AnalyzeIndicatorsUseCase(
+        ohlcv_provider=ohlcv_provider, flow_provider=flow_provider
+    )
     report_uc = GenerateReportUseCase(repository=repository, notifier=notifier)
 
     pipeline = RunPipelineUseCase(

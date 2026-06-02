@@ -7,6 +7,8 @@ from datetime import date, timedelta
 from kor_trading.application.use_cases.analyze_indicators import AnalyzeIndicatorsUseCase
 from kor_trading.domain.entities.ohlcv_bar import OhlcvBar
 from kor_trading.domain.entities.ticker import Ticker
+from kor_trading.domain.ports.investor_flow_provider import InvestorFlow
+from tests.fakes.fake_investor_flow_provider import FakeInvestorFlowProvider
 from tests.fakes.fake_ohlcv_provider import FakeOhlcvProvider
 
 AS_OF = date(2026, 5, 26)
@@ -115,3 +117,48 @@ class TestScoresIncluded:
         assert scores.overall.value > 0
         assert "trend" in scores.category
         assert "ultra_short" in scores.by_horizon
+
+
+class TestFlowIntegration:
+    def test_flow_provider_fills_foreign_institution_fields(self) -> None:
+        ohlcv = FakeOhlcvProvider()
+        ohlcv.add_bars("005930", _bars([100 + i for i in range(130)]))
+        flow = FakeInvestorFlowProvider()
+        flow.set_flow(
+            "005930",
+            InvestorFlow(
+                foreign_net_5d=12_500_000_000,
+                foreign_net_20d=51_000_000_000,
+                institution_net_5d=-3_200_000_000,
+                institution_net_20d=8_400_000_000,
+            ),
+        )
+        uc = AnalyzeIndicatorsUseCase(ohlcv_provider=ohlcv, flow_provider=flow)
+
+        result = uc.execute([_t()], AS_OF)
+        snap = result.items[0].snapshot
+        assert snap.foreign_net_buy_5d == 12_500_000_000
+        assert snap.foreign_net_buy_20d == 51_000_000_000
+        assert snap.institution_net_buy_5d == -3_200_000_000
+        # flow가 채워졌으니 flow 카테고리 점수가 0이 아니어야 함
+        assert result.items[0].scores.category["flow"].value > 0
+
+    def test_no_flow_provider_keeps_fields_none(self) -> None:
+        ohlcv = FakeOhlcvProvider()
+        ohlcv.add_bars("005930", _bars([100] * 30))
+        uc = AnalyzeIndicatorsUseCase(ohlcv_provider=ohlcv)  # flow_provider=None
+        result = uc.execute([_t()], AS_OF)
+        snap = result.items[0].snapshot
+        assert snap.foreign_net_buy_5d is None
+        assert snap.institution_net_buy_5d is None
+
+    def test_flow_provider_failure_does_not_block_analysis(self) -> None:
+        ohlcv = FakeOhlcvProvider()
+        ohlcv.add_bars("005930", _bars([100] * 30))
+        flow = FakeInvestorFlowProvider()
+        flow.configure_failure(on=True)
+        uc = AnalyzeIndicatorsUseCase(ohlcv_provider=ohlcv, flow_provider=flow)
+        result = uc.execute([_t()], AS_OF)
+        # 지표는 그대로 산출, flow 필드는 None
+        assert len(result.items) == 1
+        assert result.items[0].snapshot.foreign_net_buy_5d is None
