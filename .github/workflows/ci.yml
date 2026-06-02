@@ -38,6 +38,10 @@ jobs:
         if: steps.pyproject.outputs.exists == 'true'
         run: uv sync --frozen
 
+      - name: Check architecture contracts
+        if: steps.pyproject.outputs.exists == 'true'
+        run: uv run lint-imports
+
       - name: Run tests
         if: steps.pyproject.outputs.exists == 'true'
         run: uv run pytest

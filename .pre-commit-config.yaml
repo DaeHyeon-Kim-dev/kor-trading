@@ -23,3 +23,13 @@ repos:
       - id: check-toml
       - id: check-added-large-files
         args: [--maxkb=500]
+
+  # 헥사고날 의존성 방향 위반 검출 (로컬 전용 — uv run)
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: import-linter (architecture contracts)
+        entry: uv run lint-imports
+        language: system
+        pass_filenames: false
+        always_run: true

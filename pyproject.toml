@@ -27,6 +27,7 @@ dev = [
     "pre-commit>=3.7",
     "types-pyyaml>=6.0.12.20260518",
     "respx>=0.23.1",
+    "import-linter>=2.11",
 ]
 
 # ──────────────────────── ruff ────────────────────────
@@ -73,4 +74,59 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
     "\\.\\.\\.\\s*$",
+]
+
+# ──────────────────────── import-linter ────────────────────────
+[tool.importlinter]
+root_package = "kor_trading"
+include_external_packages = true
+
+# 도메인 핵심(엔티티·값객체·포트)은 framework 0 의존
+[[tool.importlinter.contracts]]
+name = "Domain core(entities/values/ports)는 외부·상위 레이어 의존 금지"
+type = "forbidden"
+source_modules = [
+    "kor_trading.domain.entities",
+    "kor_trading.domain.values",
+    "kor_trading.domain.ports",
+]
+forbidden_modules = [
+    "kor_trading.application",
+    "kor_trading.adapters",
+    "kor_trading.infrastructure",
+    "pandas",
+    "pykrx",
+    "httpx",
+    "pydantic",
+    "structlog",
+    "FinanceDataReader",
+]
+
+# 도메인 서비스는 계산용 pandas만 예외 허용, 나머지 IO 라이브러리·상위 레이어 금지
+[[tool.importlinter.contracts]]
+name = "Domain services는 pandas 외 외부 IO·상위 레이어 의존 금지"
+type = "forbidden"
+source_modules = ["kor_trading.domain.services"]
+forbidden_modules = [
+    "kor_trading.application",
+    "kor_trading.adapters",
+    "kor_trading.infrastructure",
+    "pykrx",
+    "httpx",
+    "pydantic",
+    "structlog",
+    "FinanceDataReader",
+]
+
+# Application은 어댑터·인프라·외부 IO 라이브러리 직접 의존 금지 (pandas는 domain.services 경유 허용)
+[[tool.importlinter.contracts]]
+name = "Application은 어댑터·인프라·외부 IO 의존 금지"
+type = "forbidden"
+source_modules = ["kor_trading.application"]
+forbidden_modules = [
+    "kor_trading.adapters",
+    "kor_trading.infrastructure",
+    "pykrx",
+    "httpx",
+    "FinanceDataReader",
 ]
