@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from kor_trading.adapters.outbound.dart_corp_code_resolver import DartCorpCodeResolver
+from kor_trading.adapters.outbound.dart_disclosure import DartDisclosureProvider
 from kor_trading.adapters.outbound.fdr_ticker_name_resolver import (
     FinanceDataReaderNameResolver,
 )
@@ -44,6 +46,15 @@ def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -
     market_provider = PykrxMarketSnapshotProvider(name_resolver=name_resolver)
     ohlcv_provider = PykrxOhlcvProvider()
     flow_provider = PykrxInvestorFlowProvider()
+    corp_code_resolver = DartCorpCodeResolver(
+        api_key=secrets.dart_api_key,
+        cache_path=data_base_path / "cache" / "corp_code.json",
+    )
+    disclosure_provider = DartDisclosureProvider(
+        api_key=secrets.dart_api_key,
+        ticker_to_corp_code=corp_code_resolver.get_all_mapping(),
+    )
+    _ = disclosure_provider  # AnalyzeIssuesUseCase 도입 후 wiring
     repository = FileSystemReportRepository(base_path=data_base_path / "reports")
     notifier = TelegramNotifier(
         bot_token=secrets.telegram_bot_token, chat_id=secrets.telegram_chat_id
