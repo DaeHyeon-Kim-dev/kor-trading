@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 from datetime import date as _date
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import typer
 
+from kor_trading.infrastructure.clock import SystemClock
 from kor_trading.infrastructure.config import AppConfig, Secrets
 from kor_trading.infrastructure.container import build_container
 from kor_trading.infrastructure.logging import configure_logging
 
 app = typer.Typer(name="kor-trading", help="한국 주식 트레이딩 보조 멀티 에이전트")
-
-_KST = ZoneInfo("Asia/Seoul")
 
 
 @app.command()
@@ -38,7 +35,7 @@ def run(
     config = AppConfig.from_yaml(config_path)
     secrets = Secrets()  # type: ignore[call-arg]
 
-    now_kst = datetime.now(_KST)
+    now_kst = SystemClock().now()
     if not force and not config.schedule.is_active(now_kst):
         typer.echo(f"OUT_OF_HOURS — skip ({now_kst:%Y-%m-%d %H:%M KST})")
         raise typer.Exit(code=0)
