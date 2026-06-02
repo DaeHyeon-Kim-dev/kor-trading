@@ -10,14 +10,20 @@ from kor_trading.adapters.outbound.filesystem_report_repository import (
 )
 from kor_trading.application.dto.selection import SelectionCriteria
 from kor_trading.application.use_cases.analyze_indicators import AnalyzeIndicatorsUseCase
+from kor_trading.application.use_cases.analyze_issues import AnalyzeIssuesUseCase
 from kor_trading.application.use_cases.generate_report import GenerateReportUseCase
 from kor_trading.application.use_cases.run_pipeline import RunPipelineUseCase
 from kor_trading.application.use_cases.select_stocks import SelectStocksUseCase
+from kor_trading.domain.entities.disclosure import Disclosure, DisclosureSource
+from kor_trading.domain.entities.issue import Impact, Sentiment
 from kor_trading.domain.entities.ohlcv_bar import OhlcvBar
 from kor_trading.domain.entities.stock_snapshot import StockSnapshot
 from kor_trading.domain.entities.ticker import Ticker
+from kor_trading.domain.ports.sentiment_classifier import Classification
+from tests.fakes.fake_disclosure_provider import FakeDisclosureProvider
 from tests.fakes.fake_market_snapshot_provider import FakeMarketSnapshotProvider
 from tests.fakes.fake_ohlcv_provider import FakeOhlcvProvider
+from tests.fakes.fake_sentiment_classifier import FakeSentimentClassifier
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -135,5 +141,42 @@ class TestRunPipelineEndToEnd:
             ),
             as_of=AS_OF,
             run_id="r1",
+        )
+        assert report.report_path.exists()
+
+    def test_with_issue_analysis_integrates_scores(self, tmp_path: Path) -> None:
+        snapshots = [_stock_snap("005930", trading_value=5_000_000_000_000)]
+        bars_by_ticker = {"005930": _bars([100 + i for i in range(130)])}
+        pipeline, _ = _build_pipeline(snapshots, bars_by_ticker, tmp_path)
+
+        # analyze_issues 주입 (호재 분류)
+        disc = FakeDisclosureProvider()
+        disc.add(
+            "005930",
+            [
+                Disclosure(
+                    ticker_code="005930",
+                    date=AS_OF,
+                    title="1분기 영업이익 사상 최대",
+                    source=DisclosureSource.DART,
+                    source_url="https://...",
+                    report_type="주요사항보고",
+                )
+            ],
+        )
+        clf = FakeSentimentClassifier(
+            default=Classification(
+                sentiment=Sentiment.POSITIVE,
+                impact=Impact.HIGH,
+                confidence=0.9,
+                summary="호재",
+            )
+        )
+        pipeline.analyze_issues = AnalyzeIssuesUseCase(disclosure_provider=disc, classifier=clf)
+
+        report = pipeline.execute(
+            criteria=SelectionCriteria(top_volume_n=5, surge_top_n=0, plunge_top_n=0),
+            as_of=AS_OF,
+            run_id="2026-05-26/1500",
         )
         assert report.report_path.exists()

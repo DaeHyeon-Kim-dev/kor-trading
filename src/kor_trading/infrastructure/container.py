@@ -8,6 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from kor_trading.adapters.outbound.claude_code_classifier import (
+    ClaudeCodeSentimentClassifier,
+)
 from kor_trading.adapters.outbound.dart_corp_code_resolver import DartCorpCodeResolver
 from kor_trading.adapters.outbound.dart_disclosure import DartDisclosureProvider
 from kor_trading.adapters.outbound.fdr_ticker_name_resolver import (
@@ -23,6 +26,7 @@ from kor_trading.adapters.outbound.pykrx_market_snapshot import (
 from kor_trading.adapters.outbound.pykrx_ohlcv import PykrxOhlcvProvider
 from kor_trading.adapters.outbound.telegram_notifier import TelegramNotifier
 from kor_trading.application.use_cases.analyze_indicators import AnalyzeIndicatorsUseCase
+from kor_trading.application.use_cases.analyze_issues import AnalyzeIssuesUseCase
 from kor_trading.application.use_cases.generate_report import GenerateReportUseCase
 from kor_trading.application.use_cases.run_pipeline import RunPipelineUseCase
 from kor_trading.application.use_cases.select_stocks import SelectStocksUseCase
@@ -54,7 +58,7 @@ def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -
         api_key=secrets.dart_api_key,
         ticker_to_corp_code=corp_code_resolver.get_all_mapping(),
     )
-    _ = disclosure_provider  # AnalyzeIssuesUseCase 도입 후 wiring
+    classifier = ClaudeCodeSentimentClassifier()
     repository = FileSystemReportRepository(base_path=data_base_path / "reports")
     notifier = TelegramNotifier(
         bot_token=secrets.telegram_bot_token, chat_id=secrets.telegram_chat_id
@@ -64,11 +68,13 @@ def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -
     analyze_uc = AnalyzeIndicatorsUseCase(
         ohlcv_provider=ohlcv_provider, flow_provider=flow_provider
     )
+    issues_uc = AnalyzeIssuesUseCase(disclosure_provider=disclosure_provider, classifier=classifier)
     report_uc = GenerateReportUseCase(repository=repository, notifier=notifier)
 
     pipeline = RunPipelineUseCase(
         select_stocks=select_uc,
         analyze_indicators=analyze_uc,
         generate_report=report_uc,
+        analyze_issues=issues_uc,
     )
     return AppContainer(pipeline=pipeline)
