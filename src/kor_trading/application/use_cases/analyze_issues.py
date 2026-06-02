@@ -44,13 +44,17 @@ class AnalyzeIssuesUseCase:
         as_of: date,
         lookback_days: int = _DEFAULT_LOOKBACK_DAYS,
         max_workers: int = _DEFAULT_WORKERS,
+        max_issues_per_ticker: int = _MAX_ISSUES_PER_TICKER,
     ) -> IssueAnalysisResult:
         if not tickers:
             return IssueAnalysisResult(as_of=as_of, items=())
 
         items: list[IssueAnalysisItem] = []
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(self._analyze_one, t, as_of, lookback_days): t for t in tickers}
+            futures = {
+                pool.submit(self._analyze_one, t, as_of, lookback_days, max_issues_per_ticker): t
+                for t in tickers
+            }
             for future in as_completed(futures):
                 ticker = futures[future]
                 try:
@@ -65,14 +69,14 @@ class AnalyzeIssuesUseCase:
         return IssueAnalysisResult(as_of=as_of, items=tuple(items))
 
     def _analyze_one(
-        self, ticker: Ticker, as_of: date, lookback_days: int
+        self, ticker: Ticker, as_of: date, lookback_days: int, max_issues: int
     ) -> IssueAnalysisItem | None:
         disclosures = self.disclosure_provider.get_recent(ticker.code, as_of, lookback_days)
         if not disclosures:
             return None
 
         issues: list[Issue] = []
-        for disclosure in disclosures[:_MAX_ISSUES_PER_TICKER]:
+        for disclosure in disclosures[:max_issues]:
             issue = self._to_issue(disclosure, as_of)
             if issue is not None:
                 issues.append(issue)
