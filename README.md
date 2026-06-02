@@ -101,6 +101,7 @@ uv run python -m kor_trading run [OPTIONS]
 - [INDICATORS](docs/INDICATORS.md) — 지표 해석 (학습용) ⭐
 - [CONFIG](docs/CONFIG.md) — 설정 변경 가이드
 - [DEVELOPMENT](docs/DEVELOPMENT.md) — 개발 가이드 (Hexagonal + Clean Arch + TDD) ⭐
+- [ROADMAP](docs/ROADMAP.md) — 구현 현황 & 남은 작업 ⭐
 
 ## 결정 사항 요약 (PRD v0.3)
 
