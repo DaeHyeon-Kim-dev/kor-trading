@@ -19,6 +19,7 @@ from kor_trading.domain.entities.indicator_snapshot import (
     IndicatorSnapshot,
     MacdCross,
     MacdPosition,
+    ObvTrend,
     SmaAlignment,
 )
 
@@ -40,6 +41,8 @@ _STOCH_D = 3
 _CROSS_LOOKBACK = 3
 _SQUEEZE_LOOKBACK = 20
 _SQUEEZE_RATIO = 0.7
+_OBV_TREND_LOOKBACK = 20
+_OBV_FLAT_EPSILON = 1e-9
 
 
 def calculate_indicators(ticker: Ticker, bars: list[OhlcvBar]) -> IndicatorSnapshot:
@@ -64,6 +67,7 @@ def calculate_indicators(ticker: Ticker, bars: list[OhlcvBar]) -> IndicatorSnaps
     bb_position = _classify_bollinger_position(last_close, bb_upper, bb_mid, bb_lower)
     atr = _atr(df, _ATR_PERIOD)
     stoch_k, stoch_d = _stochastic(df, _STOCH_K, _STOCH_D)
+    obv_trend = _obv_trend(df)
 
     return IndicatorSnapshot(
         ticker=ticker,
@@ -87,6 +91,7 @@ def calculate_indicators(ticker: Ticker, bars: list[OhlcvBar]) -> IndicatorSnaps
         bb_position=bb_position,
         bb_squeeze=bb_squeeze,
         atr_14=atr,
+        obv_trend=obv_trend,
     )
 
 
@@ -242,6 +247,31 @@ def _classify_bollinger_position(
     if close > lower:
         return "lower_half"
     return "below"
+
+
+# ────────────────────────── volume ──────────────────────────
+
+
+def _obv_trend(df: pd.DataFrame) -> ObvTrend | None:
+    """OBV(On Balance Volume)를 계산하고 최근 추세를 분류.
+
+    OBV: 종가가 전일보다 오르면 거래량 +, 내리면 -, 같으면 0 누적.
+    추세: 최근 lookback 구간 OBV의 선형 변화(끝-시작) 부호로 판정.
+    """
+    if len(df) < _OBV_TREND_LOOKBACK:
+        return None
+    close = df["close"]
+    volume = df["volume"]
+    direction = close.diff().apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+    obv = (direction * volume).cumsum()
+
+    window = obv.iloc[-_OBV_TREND_LOOKBACK:]
+    delta = float(window.iloc[-1] - window.iloc[0])
+    if delta > _OBV_FLAT_EPSILON:
+        return "up"
+    if delta < -_OBV_FLAT_EPSILON:
+        return "down"
+    return "flat"
 
 
 # ────────────────────────── stochastic ──────────────────────────
