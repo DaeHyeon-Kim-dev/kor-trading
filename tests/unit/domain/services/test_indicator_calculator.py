@@ -174,6 +174,30 @@ class TestStochastic:
         assert snap.stoch_d is None
 
 
+class TestObvTrend:
+    def test_none_when_insufficient(self) -> None:
+        bars = _bars([100] * 10)  # 20 미만
+        snap = calculate_indicators(_t(), bars)
+        assert snap.obv_trend is None
+
+    def test_up_when_rising_prices(self) -> None:
+        # 지속 상승 → 매일 거래량이 OBV에 +로 누적
+        bars = _bars([100 + i for i in range(30)])
+        snap = calculate_indicators(_t(), bars)
+        assert snap.obv_trend == "up"
+
+    def test_down_when_falling_prices(self) -> None:
+        bars = _bars([200 - i for i in range(30)])
+        snap = calculate_indicators(_t(), bars)
+        assert snap.obv_trend == "down"
+
+    def test_flat_when_constant_prices(self) -> None:
+        # 종가 동일 → direction 0 → OBV 변화 없음
+        bars = _bars([100] * 30)
+        snap = calculate_indicators(_t(), bars)
+        assert snap.obv_trend == "flat"
+
+
 class TestAsOf:
     def test_uses_last_bar_date(self) -> None:
         bars = _bars([100] * 5)
