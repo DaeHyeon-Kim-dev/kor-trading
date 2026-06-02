@@ -30,6 +30,47 @@ selection:
 """
 
 
+_FULL_YAML = (
+    _MINIMAL_YAML
+    + """
+indicators:
+  ohlcv_lookback_days: 200
+  sma_periods: [5, 20, 60, 120]
+
+news:
+  lookback_days: 14
+  max_issues_per_ticker: 10
+"""
+)
+
+
+class TestPipelineOptions:
+    def test_defaults_when_sections_absent(self, tmp_path: Path) -> None:
+        yaml_file = tmp_path / "config.yaml"
+        _write_yaml(yaml_file, _MINIMAL_YAML)
+        cfg = AppConfig.from_yaml(yaml_file)
+        opts = cfg.to_pipeline_options()
+        assert opts.indicator_lookback_days == 120
+        assert opts.issue_lookback_days == 7
+        assert opts.max_issues_per_ticker == 20
+
+    def test_reads_from_yaml_when_present(self, tmp_path: Path) -> None:
+        yaml_file = tmp_path / "config.yaml"
+        _write_yaml(yaml_file, _FULL_YAML)
+        cfg = AppConfig.from_yaml(yaml_file)
+        opts = cfg.to_pipeline_options()
+        assert opts.indicator_lookback_days == 200
+        assert opts.issue_lookback_days == 14
+        assert opts.max_issues_per_ticker == 10
+
+    def test_ignores_unknown_indicator_keys(self, tmp_path: Path) -> None:
+        # sma_periods, macd 등 추가 키가 있어도 무시 (검증 통과)
+        yaml_file = tmp_path / "config.yaml"
+        _write_yaml(yaml_file, _FULL_YAML)
+        cfg = AppConfig.from_yaml(yaml_file)
+        assert cfg.indicators.ohlcv_lookback_days == 200
+
+
 class TestSecrets:
     def test_reads_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok-123")

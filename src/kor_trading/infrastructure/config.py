@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, time
 from typing import TYPE_CHECKING, Self
 
@@ -69,9 +70,37 @@ class SelectionConfig(BaseModel):
     markets: list[Market]
 
 
+class IndicatorsConfig(BaseModel):
+    """지표 계산 파라미터 (yaml의 다른 키는 무시)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ohlcv_lookback_days: int = Field(default=120, gt=0)
+
+
+class NewsConfig(BaseModel):
+    """뉴스·공시 파라미터 (yaml의 다른 키는 무시)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    lookback_days: int = Field(default=7, gt=0)
+    max_issues_per_ticker: int = Field(default=20, gt=0)
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineOptions:
+    """파이프라인 실행에 필요한 config 파생 값."""
+
+    indicator_lookback_days: int
+    issue_lookback_days: int
+    max_issues_per_ticker: int
+
+
 class AppConfig(BaseModel):
     schedule: ScheduleConfig
     selection: SelectionConfig
+    indicators: IndicatorsConfig = Field(default_factory=IndicatorsConfig)
+    news: NewsConfig = Field(default_factory=NewsConfig)
 
     @classmethod
     def from_yaml(cls, path: Path) -> Self:
@@ -88,4 +117,11 @@ class AppConfig(BaseModel):
             market_cap_min_krw=self.selection.market_cap_min_krw,
             max_candidates=self.selection.max_candidates,
             markets=tuple(self.selection.markets),
+        )
+
+    def to_pipeline_options(self) -> PipelineOptions:
+        return PipelineOptions(
+            indicator_lookback_days=self.indicators.ohlcv_lookback_days,
+            issue_lookback_days=self.news.lookback_days,
+            max_issues_per_ticker=self.news.max_issues_per_ticker,
         )

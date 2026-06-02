@@ -33,7 +33,16 @@ class RunPipelineUseCase:
     generate_report: GenerateReportUseCase
     analyze_issues: AnalyzeIssuesUseCase | None = None
 
-    def execute(self, *, criteria: SelectionCriteria, as_of: date, run_id: str) -> GeneratedReport:
+    def execute(
+        self,
+        *,
+        criteria: SelectionCriteria,
+        as_of: date,
+        run_id: str,
+        indicator_lookback_days: int = 120,
+        issue_lookback_days: int = 7,
+        max_issues_per_ticker: int = 20,
+    ) -> GeneratedReport:
         log.info("pipeline.start", run_id=run_id, as_of=as_of.isoformat())
 
         selection = self.select_stocks.execute(criteria, as_of)
@@ -45,7 +54,9 @@ class RunPipelineUseCase:
         )
 
         tickers = [c.snapshot.ticker for c in selection.candidates]
-        indicators = self.analyze_indicators.execute(tickers, as_of)
+        indicators = self.analyze_indicators.execute(
+            tickers, as_of, lookback_days=indicator_lookback_days
+        )
         log.info(
             "pipeline.indicators",
             run_id=run_id,
@@ -56,7 +67,12 @@ class RunPipelineUseCase:
         issue_scores: dict[str, float] = {}
         issues_by_ticker: dict[str, tuple[Issue, ...]] = {}
         if self.analyze_issues is not None:
-            issue_result = self.analyze_issues.execute(tickers, as_of)
+            issue_result = self.analyze_issues.execute(
+                tickers,
+                as_of,
+                lookback_days=issue_lookback_days,
+                max_issues_per_ticker=max_issues_per_ticker,
+            )
             issue_scores = {item.ticker_code: item.overall_score for item in issue_result.items}
             issues_by_ticker = {item.ticker_code: item.issues for item in issue_result.items}
             log.info("pipeline.issues", run_id=run_id, analyzed=len(issue_result.items))
