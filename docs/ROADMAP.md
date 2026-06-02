@@ -33,16 +33,23 @@
 
 ## 🔴 남은 작업 — MVP 마감용 (선택)
 
-### R1. 실 운용 end-to-end 검증 ⭐ 최우선
+### R1. 실 운용 end-to-end 검증 ⭐ 진행 중
 - **무엇**: 실제 `claude -p` + DART API + pykrx + Telegram으로 1회 전체 흐름 실행
-- **필요**: `.env`에 `DART_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` 입력
+- **필요**: `.env`에 `DART_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, **`KRX_ID`/`KRX_PW`**
+
+- **🔧 발견·수정 (2026-06-02)**: pykrx 1.2.8 시세 조회 블로커.
+  - **원인**: KRX data 포털(data.krx.co.kr)이 조회에 **로그인 의무화**. 비로그인 요청은
+    `HTTP 400 + "LOGOUT"` 반환 → pykrx `.json()` 파싱 실패 ("Expecting value").
+  - **수정**: `Secrets`에 `KRX_ID`/`KRX_PW` 추가 + `configure_krx_login()`이 데이터 요청 전
+    환경변수 주입 → pykrx 자동 로그인. (pykrx 코드 버그 아님 — KRX 정책 변경 대응)
+
 - **확인 포인트**:
-  - pykrx 실 데이터 fetch (영업일/휴장일)
-  - DART corp_code 매핑 다운로드 + 공시 조회
-  - `claude -p` subprocess 분류가 구독 한도 내 정상 동작 + 속도(종목당 ~1.6s)
-  - 텔레그램 실제 수신
-  - 리포트/evidence 파일 저장 확인
-- **규모**: 코드 변경 거의 없음, 디버깅 위주. 통합 테스트(`-m integration`) 1~2개 추가 가능.
+  - [x] 네트워크(krx/dart/naver) 접근 OK
+  - [x] pykrx 블로커 원인 진단 + KRX 자격증명 지원 추가
+  - [ ] `KRX_ID`/`KRX_PW`로 pykrx 실 시세 fetch 검증
+  - [ ] DART corp_code 매핑 다운로드 + 공시 조회
+  - [ ] `claude -p` 단발 분류는 검증 완료 / 파이프라인 통합 미검증
+  - [ ] 텔레그램 실제 수신 + 리포트 파일 저장
 
 ### R2. 시장 개요 섹션
 - **무엇**: 리포트 상단에 KOSPI/KOSDAQ 지수·등락률, 외국인/기관 일별 순매수 요약

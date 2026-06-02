@@ -30,6 +30,7 @@ from kor_trading.application.use_cases.analyze_issues import AnalyzeIssuesUseCas
 from kor_trading.application.use_cases.generate_report import GenerateReportUseCase
 from kor_trading.application.use_cases.run_pipeline import RunPipelineUseCase
 from kor_trading.application.use_cases.select_stocks import SelectStocksUseCase
+from kor_trading.infrastructure.krx_auth import configure_krx_login
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -45,6 +46,10 @@ class AppContainer:
 def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -> AppContainer:
     """Composition Root: 어댑터 ↔ 유스케이스 연결."""
     _ = config  # 추후 use case별 옵션 주입 시 사용
+
+    # KRX 포털 로그인 자격증명 주입 (pykrx 데이터 조회에 필요).
+    # 자격증명이 없으면 pykrx 어댑터가 "LOGOUT" 응답으로 빈 결과를 반환한다.
+    configure_krx_login(secrets.krx_id, secrets.krx_pw)
 
     name_resolver = FinanceDataReaderNameResolver()
     market_provider = PykrxMarketSnapshotProvider(name_resolver=name_resolver)
