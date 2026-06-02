@@ -20,6 +20,7 @@ if TYPE_CHECKING:
         GenerateReportUseCase,
     )
     from kor_trading.application.use_cases.select_stocks import SelectStocksUseCase
+    from kor_trading.domain.entities.issue import Issue
 
 
 log = structlog.get_logger()
@@ -53,9 +54,11 @@ class RunPipelineUseCase:
         )
 
         issue_scores: dict[str, float] = {}
+        issues_by_ticker: dict[str, tuple[Issue, ...]] = {}
         if self.analyze_issues is not None:
             issue_result = self.analyze_issues.execute(tickers, as_of)
             issue_scores = {item.ticker_code: item.overall_score for item in issue_result.items}
+            issues_by_ticker = {item.ticker_code: item.issues for item in issue_result.items}
             log.info("pipeline.issues", run_id=run_id, analyzed=len(issue_result.items))
 
         report = self.generate_report.execute(
@@ -64,6 +67,7 @@ class RunPipelineUseCase:
             selection=selection,
             indicators=indicators,
             issue_scores_by_ticker=issue_scores,
+            issues_by_ticker=issues_by_ticker,
         )
         log.info("pipeline.done", run_id=run_id, report_path=str(report.report_path))
         return report

@@ -17,7 +17,9 @@ from kor_trading.application.rendering.report_renderer import (
     render_evidence_md,
     render_report_md,
 )
+from kor_trading.domain.entities.disclosure import DisclosureSource
 from kor_trading.domain.entities.indicator_snapshot import IndicatorSnapshot
+from kor_trading.domain.entities.issue import Impact, Issue, Sentiment
 from kor_trading.domain.entities.stock_snapshot import StockSnapshot
 from kor_trading.domain.entities.ticker import Ticker
 from kor_trading.domain.services.horizon_recommendation import (
@@ -26,6 +28,23 @@ from kor_trading.domain.services.horizon_recommendation import (
 from kor_trading.domain.services.indicator_scorer import compute_scores
 
 AS_OF = date(2026, 5, 26)
+
+
+def _issue(code: str, title: str) -> Issue:
+    return Issue(
+        ticker_code=code,
+        date=AS_OF,
+        title=title,
+        source=DisclosureSource.DART,
+        source_url="https://dart.fss.or.kr/...",
+        sentiment=Sentiment.POSITIVE,
+        impact=Impact.HIGH,
+        confidence=0.9,
+        summary="요약",
+        recency_days=0,
+        decay_weight=1.0,
+        effective_impact=1.0,
+    )
 
 
 def _ticker(code: str = "005930", name: str = "삼성전자") -> Ticker:
@@ -106,6 +125,31 @@ class TestRenderReport:
         assert "## 요약 테이블" in md
         assert "## 종목별 상세" in md
 
+    def test_includes_issue_lines_when_provided(self) -> None:
+        ticker = _ticker()
+        ind_snap = _indicator_snap(ticker)
+        scores = compute_scores(ind_snap)
+        recs = derive_horizon_recommendations(scores)
+
+        selection = SelectionResult(as_of=AS_OF, total_screened=1, candidates=(_candidate(ticker),))
+        indicators = IndicatorAnalysisResult(
+            as_of=AS_OF,
+            items=(IndicatorAnalysisItem(snapshot=ind_snap, scores=scores),),
+            errors=(),
+        )
+        issue = _issue(ticker.code, "1분기 영업이익 사상 최대")
+
+        md = render_report_md(
+            as_of=AS_OF,
+            selection=selection,
+            indicators=indicators,
+            horizon_recommendations={ticker.code: recs},
+            issues_by_ticker={ticker.code: (issue,)},
+        )
+        assert "이슈" in md
+        assert "1분기 영업이익 사상 최대" in md
+        assert "호재" in md
+
     def test_renders_empty_when_no_candidates(self) -> None:
         selection = SelectionResult(as_of=AS_OF, total_screened=0, candidates=())
         indicators = IndicatorAnalysisResult(as_of=AS_OF, items=(), errors=())
@@ -171,6 +215,23 @@ class TestRenderEvidence:
         assert "MACD" in md
         assert "RSI" in md
 
+    def test_includes_issue_details_when_provided(self) -> None:
+        ticker = _ticker()
+        ind_snap = _indicator_snap(ticker)
+        recs = derive_horizon_recommendations(compute_scores(ind_snap))
+        issue = _issue(ticker.code, "공급계약 체결")
+
+        md = render_evidence_md(
+            candidate=_candidate(ticker),
+            snapshot=ind_snap,
+            recommendations=recs,
+            issues=(issue,),
+        )
+        assert "이슈 상세" in md
+        assert "공급계약 체결" in md
+        assert "요약" in md
+        assert "dart.fss.or.kr" in md
+
     def test_missing_snapshot_skips_indicator_block(self) -> None:
         ticker = _ticker()
         md = render_evidence_md(
@@ -179,6 +240,7 @@ class TestRenderEvidence:
             recommendations={},
         )
         assert "지표 상세" not in md
+        assert "이슈 상세" not in md  # 이슈 없으면 섹션 미포함
 
     def test_partial_snapshot_renders_what_available(self) -> None:
         ticker = _ticker()

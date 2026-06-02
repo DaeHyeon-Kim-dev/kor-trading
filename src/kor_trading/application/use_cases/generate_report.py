@@ -16,6 +16,7 @@ from kor_trading.domain.services.horizon_recommendation import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
     from datetime import date
     from pathlib import Path
 
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
         IndicatorAnalysisResult,
     )
     from kor_trading.application.dto.selection import SelectionResult
+    from kor_trading.domain.entities.issue import Issue
     from kor_trading.domain.ports.notifier import Notifier
     from kor_trading.domain.ports.report_repository import ReportRepository
 
@@ -50,8 +52,10 @@ class GenerateReportUseCase:
         selection: SelectionResult,
         indicators: IndicatorAnalysisResult,
         issue_scores_by_ticker: dict[str, float] | None = None,
+        issues_by_ticker: Mapping[str, Sequence[Issue]] | None = None,
     ) -> GeneratedReport:
         issue_scores = issue_scores_by_ticker or {}
+        issues_map = issues_by_ticker or {}
         indicator_items = {item.snapshot.ticker.code: item for item in indicators.items}
 
         horizon_recs: dict[str, dict] = {}  # type: ignore[type-arg]
@@ -70,6 +74,7 @@ class GenerateReportUseCase:
             selection=selection,
             indicators=indicators,
             horizon_recommendations=horizon_recs,
+            issues_by_ticker=issues_map,
         )
         report_path = self.repository.save_report(run_id, report_md)
 
@@ -81,6 +86,7 @@ class GenerateReportUseCase:
                 candidate=c,
                 snapshot=ind_item.snapshot if ind_item else None,
                 recommendations=horizon_recs.get(code, {}),
+                issues=issues_map.get(code, ()),
             )
             evidence_paths.append(self.repository.save_evidence(run_id, code, evidence_md))
 

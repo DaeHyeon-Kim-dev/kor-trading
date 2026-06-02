@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING
 from kor_trading.domain.values.recommendation import RecommendationLevel
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
     from datetime import date
 
     from kor_trading.application.dto.indicator_analysis import IndicatorAnalysisResult
     from kor_trading.application.dto.selection import SelectionCandidate, SelectionResult
     from kor_trading.domain.entities.indicator_snapshot import IndicatorSnapshot
+    from kor_trading.domain.entities.issue import Issue
     from kor_trading.domain.services.horizon_recommendation import HorizonRecommendation
     from kor_trading.domain.services.indicator_scorer import Horizon
 
@@ -41,11 +43,14 @@ def render_report_md(
     selection: SelectionResult,
     indicators: IndicatorAnalysisResult,
     horizon_recommendations: dict[str, dict[Horizon, HorizonRecommendation]],
+    issues_by_ticker: Mapping[str, Sequence[Issue]] | None = None,
 ) -> str:
     """전체 리포트 마크다운 생성.
 
     horizon_recommendations: {ticker_code: {horizon: HorizonRecommendation}}
+    issues_by_ticker: {ticker_code: [Issue, ...]} (옵션)
     """
+    issues_map = issues_by_ticker or {}
     sections: list[str] = []
     sections.append(f"# 한국 주식 트레이딩 리포트 — {as_of.isoformat()}")
     sections.append("")
@@ -75,7 +80,15 @@ def render_report_md(
         code = c.snapshot.ticker.code
         ind_item = indicator_by_ticker.get(code)
         recs = horizon_recommendations.get(code, {})
-        sections.append(_render_card(i, c, ind_item.snapshot if ind_item else None, recs))
+        sections.append(
+            _render_card(
+                i,
+                c,
+                ind_item.snapshot if ind_item else None,
+                recs,
+                issues_map.get(code, ()),
+            )
+        )
         sections.append("")
 
     if indicators.errors:
@@ -92,8 +105,9 @@ def render_evidence_md(
     candidate: SelectionCandidate,
     snapshot: IndicatorSnapshot | None,
     recommendations: dict[Horizon, HorizonRecommendation],
+    issues: Sequence[Issue] = (),
 ) -> str:
-    """종목별 근거 마크다운 (지표 상세 + 추천 판정)."""
+    """종목별 근거 마크다운 (지표 상세 + 추천 판정 + 이슈)."""
     code = candidate.snapshot.ticker.code
     name = candidate.snapshot.ticker.name
     lines: list[str] = [
@@ -120,6 +134,14 @@ def render_evidence_md(
         lines.extend(_render_indicator_block(snapshot))
         lines.append("")
 
+    if issues:
+        lines.append("## 이슈 상세")
+        for issue in issues:
+            lines.append(f"- {_issue_line(issue)}")
+            lines.append(f"  - 요약: {issue.summary} (신뢰도 {issue.confidence:.2f})")
+            lines.append(f"  - 출처: {issue.source_url}")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -144,6 +166,7 @@ def _render_card(
     candidate: SelectionCandidate,
     snapshot: IndicatorSnapshot | None,
     recs: dict[Horizon, HorizonRecommendation],
+    issues: Sequence[Issue] = (),
 ) -> str:
     code = candidate.snapshot.ticker.code
     name = candidate.snapshot.ticker.name
@@ -166,7 +189,28 @@ def _render_card(
     if snapshot is not None:
         parts.append("")
         parts.append(f"**지표 요약**: {_short_indicator_summary(snapshot)}")
+
+    if issues:
+        parts.append("")
+        parts.append("**이슈**:")
+        for issue in issues[:3]:
+            parts.append(f"- {_issue_line(issue)}")
     return "\n".join(parts)
+
+
+_SENTIMENT_MARK: dict[str, str] = {
+    "positive": "호재",
+    "negative": "악재",
+    "neutral": "중립",
+}
+
+
+def _issue_line(issue: Issue) -> str:
+    mark = _SENTIMENT_MARK.get(issue.sentiment.value, issue.sentiment.value)
+    return (
+        f"[{issue.source.value}, {issue.date:%m/%d}, {issue.recency_days}일 전, "
+        f"{mark}/{issue.impact.value}] {issue.title}"
+    )
 
 
 def _short_indicator_summary(snapshot: IndicatorSnapshot) -> str:
