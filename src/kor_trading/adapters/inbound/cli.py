@@ -15,6 +15,11 @@ from kor_trading.infrastructure.logging import configure_logging
 app = typer.Typer(name="kor-trading", help="한국 주식 트레이딩 보조 멀티 에이전트")
 
 
+@app.callback()
+def _root() -> None:
+    """서브커맨드(run)를 명시적으로 받기 위한 콜백."""
+
+
 @app.command()
 def run(
     config_path: Path = typer.Option(  # noqa: B008

@@ -71,6 +71,28 @@ class TestPipelineOptions:
         assert cfg.indicators.ohlcv_lookback_days == 200
 
 
+class TestSelectionDefaults:
+    def test_markets_defaults_when_absent(self, tmp_path: Path) -> None:
+        # markets 생략된 yaml → 기본값 [KOSPI, KOSDAQ]
+        yaml_no_markets = """
+schedule:
+  interval_seconds: 3600
+  active_hours_kst: {start: "08:30", end: "16:30"}
+  active_weekdays: [1, 2, 3, 4, 5]
+selection:
+  top_volume_n: 50
+  surge_top_n: 10
+  plunge_top_n: 10
+  market_cap_min_krw: 50_000_000_000
+  max_candidates: 30
+"""
+        yaml_file = tmp_path / "config.yaml"
+        _write_yaml(yaml_file, yaml_no_markets)
+        cfg = AppConfig.from_yaml(yaml_file)
+        assert cfg.selection.markets == ["KOSPI", "KOSDAQ"]
+        assert cfg.to_selection_criteria().markets == ("KOSPI", "KOSDAQ")
+
+
 class TestSecrets:
     def test_reads_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok-123")
