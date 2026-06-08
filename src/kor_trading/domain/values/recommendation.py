@@ -24,10 +24,11 @@ class RecommendationLevel(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class RecommendationThresholds:
-    strong_buy: float = 0.5
-    buy: float = 0.2
-    sell: float = -0.2
-    strong_sell: float = -0.5
+    # 스윙 매매 — 확실한 신호만 Buy, 애매하면 Hold (기존 0.2/0.5에서 상향)
+    strong_buy: float = 0.55
+    buy: float = 0.35
+    sell: float = -0.35
+    strong_sell: float = -0.55
 
     def classify(self, score: Score) -> RecommendationLevel:
         v = score.value
