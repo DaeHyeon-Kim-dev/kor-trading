@@ -39,38 +39,39 @@ _DEFAULT_WEIGHTS: dict[Category, float] = {
     "flow": 0.30,
 }
 
-# 시점별 가중치 재조정 (해당 관점 우선 지표 비중 ↑)
+# 시점별 가중치 (스윙 매매 최적화 — 관점별 우선 지표를 뚜렷이 차등)
+# momentum은 당일 등락률·5일 수익률을 포함하므로 단기 관점에서 비중 ↑
 _HORIZON_WEIGHTS: dict[Horizon, dict[Category, float]] = {
-    # 초단기: 거래량·수급 위주, 추세는 보조
+    # 초단기(당일~3일): 당일 모멘텀·거래량 급증이 결정적
     "ultra_short": {
         "trend": 0.10,
-        "momentum": 0.20,
+        "momentum": 0.40,
         "volatility": 0.10,
         "volume": 0.25,
-        "flow": 0.35,
+        "flow": 0.15,
     },
-    # 단기: 추세·모멘텀·수급
+    # 단기(1주~1개월, 스윙 핵심): 모멘텀 + 추세 균형
     "short": {
-        "trend": 0.25,
-        "momentum": 0.20,
+        "trend": 0.30,
+        "momentum": 0.30,
         "volatility": 0.10,
         "volume": 0.15,
-        "flow": 0.30,
+        "flow": 0.15,
     },
-    # 중기: 추세·수급
+    # 중기(1~3개월): 추세 위주, 모멘텀 보조
     "medium": {
-        "trend": 0.35,
+        "trend": 0.45,
         "momentum": 0.15,
-        "volatility": 0.10,
-        "volume": 0.10,
-        "flow": 0.30,
-    },
-    # 장기: 추세 강조 (재무·산업은 본 도메인 범위 외)
-    "long": {
-        "trend": 0.50,
-        "momentum": 0.10,
         "volatility": 0.05,
         "volume": 0.10,
+        "flow": 0.25,
+    },
+    # 장기(3개월+): 추세 중심 (재무·산업은 본 도메인 범위 외)
+    "long": {
+        "trend": 0.55,
+        "momentum": 0.10,
+        "volatility": 0.05,
+        "volume": 0.05,
         "flow": 0.25,
     },
 }
