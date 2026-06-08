@@ -68,6 +68,9 @@ def calculate_indicators(ticker: Ticker, bars: list[OhlcvBar]) -> IndicatorSnaps
     atr = _atr(df, _ATR_PERIOD)
     stoch_k, stoch_d = _stochastic(df, _STOCH_K, _STOCH_D)
     obv_trend = _obv_trend(df)
+    change_pct_1d = _change_pct_1d(df["close"])
+    return_5d = _return_n(df["close"], 5)
+    volume_spike = _volume_spike(df["volume"])
 
     return IndicatorSnapshot(
         ticker=ticker,
@@ -92,7 +95,43 @@ def calculate_indicators(ticker: Ticker, bars: list[OhlcvBar]) -> IndicatorSnaps
         bb_squeeze=bb_squeeze,
         atr_14=atr,
         obv_trend=obv_trend,
+        change_pct_1d=change_pct_1d,
+        return_5d=return_5d,
+        volume_spike=volume_spike,
     )
+
+
+# ────────────────────────── price action ──────────────────────────
+
+
+def _change_pct_1d(close: pd.Series) -> float | None:
+    """당일 등락률 (%) = (마지막 - 직전) / 직전 * 100."""
+    if len(close) < 2:  # noqa: PLR2004
+        return None
+    prev = float(close.iloc[-2])
+    if prev == 0:  # pragma: no cover (정상 가격은 0 불가)
+        return None
+    return (float(close.iloc[-1]) - prev) / prev * 100.0
+
+
+def _return_n(close: pd.Series, n: int) -> float | None:
+    """n거래일 전 대비 수익률 (%)."""
+    if len(close) < n + 1:
+        return None
+    base = float(close.iloc[-(n + 1)])
+    if base == 0:  # pragma: no cover (정상 가격은 0 불가)
+        return None
+    return (float(close.iloc[-1]) - base) / base * 100.0
+
+
+def _volume_spike(volume: pd.Series, period: int = 20) -> float | None:
+    """당일 거래량 / 최근 period 평균 거래량 (배수)."""
+    if len(volume) < period:
+        return None
+    avg = float(volume.iloc[-period:].mean())
+    if avg <= 0:  # pragma: no cover (거래량 평균 0은 비현실)
+        return None
+    return float(volume.iloc[-1]) / avg
 
 
 # ────────────────────────── helpers ──────────────────────────

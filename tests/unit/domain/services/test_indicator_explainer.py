@@ -73,6 +73,32 @@ class TestExplain:
         lines = explain_indicators(_snap(foreign_net_buy_5d=0))
         assert any("외국인" in line and "중립" in line for line in lines)
 
+    def test_intraday_plunge_label(self) -> None:
+        lines = explain_indicators(_snap(change_pct_1d=-9.92))
+        assert any("당일 등락" in line and "급락" in line and "보류" in line for line in lines)
+
+    def test_intraday_surge_label(self) -> None:
+        lines = explain_indicators(_snap(change_pct_1d=12.0))
+        assert any("급등" in line and "과열" in line for line in lines)
+
+    def test_intraday_rise_drop_flat(self) -> None:
+        assert any("(상승)" in line for line in explain_indicators(_snap(change_pct_1d=5.0)))
+        assert any("(하락)" in line for line in explain_indicators(_snap(change_pct_1d=-4.0)))
+        assert any("(보합)" in line for line in explain_indicators(_snap(change_pct_1d=0.5)))
+
+    def test_return_5d_and_volume_spike(self) -> None:
+        lines = explain_indicators(_snap(return_5d=12.0, volume_spike=2.3))
+        assert any("5일 수익률: +12.00%" in line for line in lines)
+        assert any("2.3배" in line and "급증" in line for line in lines)
+
+
+class TestSummarizeIntraday:
+    def test_plunge_in_summary(self) -> None:
+        assert "당일 급락" in summarize_signal(_snap(change_pct_1d=-9.0, sma_alignment="bullish"))
+
+    def test_surge_in_summary(self) -> None:
+        assert "당일 급등" in summarize_signal(_snap(change_pct_1d=10.0))
+
 
 class TestSummarize:
     def test_data_missing(self) -> None:

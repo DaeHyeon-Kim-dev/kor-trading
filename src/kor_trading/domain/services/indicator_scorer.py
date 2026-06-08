@@ -22,6 +22,13 @@ _RSI_HIGH = 70
 _RSI_NEUTRAL = 50
 _RSI_LOW = 30
 
+# 당일 등락률 구간 (스윙 매매 모멘텀)
+_PLUNGE_PCT = -7.0
+_DROP_PCT = -3.0
+_RISE_PCT = 3.0
+_SURGE_PCT = 8.0
+_VOLUME_SPIKE_THRESHOLD = 2.0
+
 
 # INDICATORS.md § 9 기본 가중치
 _DEFAULT_WEIGHTS: dict[Category, float] = {
@@ -117,18 +124,43 @@ def _trend_score(snap: IndicatorSnapshot) -> float:
 
 
 def _momentum_score(snap: IndicatorSnapshot) -> float:
-    rsi = snap.rsi_14
-    if rsi is None:
+    """RSI + 5일 수익률 + 당일 등락률을 평균 (스윙 매매 모멘텀)."""
+    components: list[float] = []
+    if snap.rsi_14 is not None:
+        components.append(_rsi_component(snap.rsi_14))
+    if snap.return_5d is not None:
+        # 5일 +15% → +1.0, -15% → -1.0
+        components.append(_clip(snap.return_5d / 15.0))
+    if snap.change_pct_1d is not None:
+        components.append(_intraday_component(snap.change_pct_1d))
+    if not components:
         return 0.0
+    return _clip(sum(components) / len(components))
+
+
+def _rsi_component(rsi: float) -> float:
     if rsi >= _RSI_EXTREME_HIGH:
-        return -0.3
+        return -0.4  # 과매수 → 조정 위험
     if rsi >= _RSI_HIGH:
         return 0.2
     if rsi >= _RSI_NEUTRAL:
-        return 0.5
+        return 0.3  # 중립~강세 (기존 0.5 → 0.3 하향)
     if rsi >= _RSI_LOW:
-        return -0.2
-    return 0.3  # 과매도(<30) → 반등 가능성
+        return -0.3
+    return 0.2  # 과매도 → 반등 여지
+
+
+def _intraday_component(change_pct: float) -> float:
+    """당일 등락률 → 모멘텀 기여. 급락은 강한 음(스윙 진입 부적절)."""
+    if change_pct <= _PLUNGE_PCT:  # -7% 이하 급락
+        return -0.7
+    if change_pct <= _DROP_PCT:  # -3% ~ -7%
+        return -0.3
+    if change_pct >= _SURGE_PCT:  # +8% 이상 급등 → 단기 과열
+        return -0.1
+    if change_pct >= _RISE_PCT:  # +3% ~ +8%
+        return 0.3
+    return 0.0
 
 
 def _volatility_score(snap: IndicatorSnapshot) -> float:
@@ -142,11 +174,14 @@ def _volatility_score(snap: IndicatorSnapshot) -> float:
 
 
 def _volume_score(snap: IndicatorSnapshot) -> float:
+    score = 0.0
     if snap.obv_trend == "up":
-        return 0.5
-    if snap.obv_trend == "down":
-        return -0.5
-    return 0.0
+        score += 0.4
+    elif snap.obv_trend == "down":
+        score -= 0.4
+    if snap.volume_spike is not None and snap.volume_spike >= _VOLUME_SPIKE_THRESHOLD:
+        score += 0.3  # 거래량 급증 = 관심 집중
+    return _clip(score)
 
 
 def _flow_score(snap: IndicatorSnapshot) -> float:

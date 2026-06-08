@@ -198,6 +198,50 @@ class TestObvTrend:
         assert snap.obv_trend == "flat"
 
 
+class TestPriceAction:
+    def test_change_pct_1d(self) -> None:
+        # 100 → 110 = +10%
+        bars = _bars([100, 110])
+        snap = calculate_indicators(_t(), bars)
+        assert snap.change_pct_1d == pytest.approx(10.0)
+
+    def test_change_pct_1d_none_when_single_bar(self) -> None:
+        snap = calculate_indicators(_t(), _bars([100]))
+        assert snap.change_pct_1d is None
+
+    def test_return_5d(self) -> None:
+        # 6봉: 100 ... 120, 5일 전(100) 대비 마지막(120) = +20%
+        bars = _bars([100, 105, 110, 115, 118, 120])
+        snap = calculate_indicators(_t(), bars)
+        assert snap.return_5d == pytest.approx(20.0)
+
+    def test_return_5d_none_when_short(self) -> None:
+        snap = calculate_indicators(_t(), _bars([100, 110]))
+        assert snap.return_5d is None
+
+    def test_volume_spike(self) -> None:
+        # 20봉 volume=1000 + 마지막 봉 volume=3000 → 21봉, 최근20 평균≈1100, 3000/1100≈2.7
+        d = date(2025, 9, 1)
+        bars: list[OhlcvBar] = []
+        for i in range(21):
+            while d.isoweekday() > 5:
+                d += timedelta(days=1)
+            vol = 3000 if i == 20 else 1000
+            bars.append(
+                OhlcvBar(
+                    date=d, open=100, high=200, low=50, close=100, volume=vol, trading_value=100
+                )
+            )
+            d += timedelta(days=1)
+        snap = calculate_indicators(_t(), bars)
+        assert snap.volume_spike is not None
+        assert snap.volume_spike > 2.0
+
+    def test_volume_spike_none_when_short(self) -> None:
+        snap = calculate_indicators(_t(), _bars([100] * 10))
+        assert snap.volume_spike is None
+
+
 class TestAsOf:
     def test_uses_last_bar_date(self) -> None:
         bars = _bars([100] * 5)
