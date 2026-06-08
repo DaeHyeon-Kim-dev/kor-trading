@@ -50,6 +50,11 @@ class IndicatorSnapshot:
     stoch_k: float | None = None
     stoch_d: float | None = None
 
+    # 단기 가격 액션 (스윙 매매용)
+    change_pct_1d: float | None = None  # 당일 등락률 (%)
+    return_5d: float | None = None  # 최근 5거래일 수익률 (%)
+    volume_spike: float | None = None  # 당일 거래량 / 20일 평균 (배수)
+
     # 변동성 — 볼린저
     bb_upper: float | None = None
     bb_mid: float | None = None

@@ -58,6 +58,8 @@ def explain_indicators(snap: IndicatorSnapshot) -> list[str]:
     if macd_parts:
         lines.append("MACD: " + ", ".join(macd_parts))
 
+    lines.extend(_price_action_lines(snap))
+
     if snap.rsi_14 is not None:
         lines.append(f"RSI {snap.rsi_14:.1f}: {_rsi_label(snap.rsi_14)}")
 
@@ -81,6 +83,10 @@ def explain_indicators(snap: IndicatorSnapshot) -> list[str]:
 def summarize_signal(snap: IndicatorSnapshot) -> str:
     """카드용 한 줄 종합 해석."""
     bits: list[str] = []
+    if snap.change_pct_1d is not None and snap.change_pct_1d <= -7.0:  # noqa: PLR2004
+        bits.append("당일 급락")
+    elif snap.change_pct_1d is not None and snap.change_pct_1d >= 8.0:  # noqa: PLR2004
+        bits.append("당일 급등")
     if snap.sma_alignment == "bullish":
         bits.append("추세 강세")
     elif snap.sma_alignment == "bearish":
@@ -99,6 +105,32 @@ def summarize_signal(snap: IndicatorSnapshot) -> str:
 
 
 # ──────────────────────── helpers ────────────────────────
+
+
+_VOLUME_SPIKE_DISPLAY = 1.5
+
+
+def _price_action_lines(snap: IndicatorSnapshot) -> list[str]:
+    out: list[str] = []
+    if snap.change_pct_1d is not None:
+        out.append(f"당일 등락: {snap.change_pct_1d:+.2f}% {_intraday_label(snap.change_pct_1d)}")
+    if snap.return_5d is not None:
+        out.append(f"5일 수익률: {snap.return_5d:+.2f}%")
+    if snap.volume_spike is not None and snap.volume_spike >= _VOLUME_SPIKE_DISPLAY:
+        out.append(f"거래량: 20일 평균의 {snap.volume_spike:.1f}배 (급증)")
+    return out
+
+
+def _intraday_label(change_pct: float) -> str:
+    if change_pct <= -7.0:  # noqa: PLR2004
+        return "(급락 — 스윙 진입 보류)"
+    if change_pct <= -3.0:  # noqa: PLR2004
+        return "(하락)"
+    if change_pct >= 8.0:  # noqa: PLR2004
+        return "(급등 — 단기 과열 주의)"
+    if change_pct >= 3.0:  # noqa: PLR2004
+        return "(상승)"
+    return "(보합)"
 
 
 def _rsi_label(rsi: float) -> str:

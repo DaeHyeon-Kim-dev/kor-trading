@@ -44,20 +44,45 @@ class TestTrendScore:
 
 
 class TestMomentumScore:
-    def test_rsi_50_to_70_positive(self) -> None:
-        assert compute_scores(_snap(rsi_14=60)).category["momentum"].value == 0.5
+    # RSI만 있을 때 momentum = RSI 컴포넌트 (단일)
+    def test_rsi_50_to_70(self) -> None:
+        assert compute_scores(_snap(rsi_14=60)).category["momentum"].value == 0.3
 
     def test_rsi_above_80_negative(self) -> None:
-        assert compute_scores(_snap(rsi_14=85)).category["momentum"].value == -0.3
+        assert compute_scores(_snap(rsi_14=85)).category["momentum"].value == -0.4
 
-    def test_rsi_below_30_positive(self) -> None:
-        assert compute_scores(_snap(rsi_14=20)).category["momentum"].value == 0.3
+    def test_rsi_below_30(self) -> None:
+        assert compute_scores(_snap(rsi_14=20)).category["momentum"].value == 0.2
 
     def test_rsi_70_to_80_mild_positive(self) -> None:
         assert compute_scores(_snap(rsi_14=75)).category["momentum"].value == 0.2
 
     def test_rsi_30_to_50_negative(self) -> None:
-        assert compute_scores(_snap(rsi_14=40)).category["momentum"].value == -0.2
+        assert compute_scores(_snap(rsi_14=40)).category["momentum"].value == -0.3
+
+    def test_intraday_plunge_drags_momentum_negative(self) -> None:
+        # RSI 중립(60)이어도 당일 급락이면 모멘텀 음수로
+        s = _snap(rsi_14=60, change_pct_1d=-9.92)
+        # (0.3 + (-0.7)) / 2 = -0.2
+        assert compute_scores(s).category["momentum"].value < 0
+
+    def test_5d_return_lifts_momentum(self) -> None:
+        s = _snap(rsi_14=60, return_5d=15.0)  # 5일 +15% → +1.0
+        # (0.3 + 1.0) / 2 = 0.65
+        assert compute_scores(s).category["momentum"].value > 0.5
+
+    def test_intraday_surge_penalized(self) -> None:
+        # 당일 +10% 급등 → 과열 페널티 (-0.1)
+        s = _snap(change_pct_1d=10.0)
+        assert compute_scores(s).category["momentum"].value < 0
+
+    def test_intraday_rise_positive(self) -> None:
+        s = _snap(change_pct_1d=5.0)  # +3~8% 상승 → +0.3
+        assert compute_scores(s).category["momentum"].value > 0
+
+    def test_intraday_moderate_drop(self) -> None:
+        s = _snap(change_pct_1d=-4.0)  # -3~-7% → -0.3
+        assert compute_scores(s).category["momentum"].value < 0
 
 
 class TestVolatilityScore:
@@ -76,10 +101,18 @@ class TestVolatilityScore:
 
 class TestVolumeScore:
     def test_obv_up_positive(self) -> None:
-        assert compute_scores(_snap(obv_trend="up")).category["volume"].value == 0.5
+        assert compute_scores(_snap(obv_trend="up")).category["volume"].value == 0.4
 
     def test_obv_down_negative(self) -> None:
-        assert compute_scores(_snap(obv_trend="down")).category["volume"].value == -0.5
+        assert compute_scores(_snap(obv_trend="down")).category["volume"].value == -0.4
+
+    def test_volume_spike_adds(self) -> None:
+        s = _snap(obv_trend="up", volume_spike=2.5)  # 0.4 + 0.3 = 0.7
+        assert compute_scores(s).category["volume"].value == pytest.approx(0.7)
+
+    def test_volume_spike_below_threshold_no_bonus(self) -> None:
+        s = _snap(obv_trend="up", volume_spike=1.5)
+        assert compute_scores(s).category["volume"].value == 0.4
 
 
 class TestFlowScore:
