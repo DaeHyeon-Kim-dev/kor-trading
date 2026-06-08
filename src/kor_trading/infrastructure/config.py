@@ -34,9 +34,8 @@ class Secrets(BaseSettings):
     telegram_bot_token: str
     telegram_chat_id: str
     dart_api_key: str
-    # KRX data 포털(data.krx.co.kr) 계정 — pykrx 데이터 조회에 로그인 필요
-    krx_id: str | None = None
-    krx_pw: str | None = None
+    # KRX OPEN API (openapi.krx.co.kr) 인증키 — 일별매매정보 등 조회
+    krx_api_key: str | None = None
     kis_app_key: str | None = None
     kis_app_secret: str | None = None
     kis_account_no: str | None = None

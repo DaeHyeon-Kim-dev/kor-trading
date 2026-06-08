@@ -1,6 +1,11 @@
 """Composition Root — 모든 어댑터/유스케이스를 연결.
 
 이 모듈만 모든 구체 어댑터를 안다. domain/application은 의존하지 않음.
+
+시세 데이터:
+- 종목 선정 스냅샷: KRX OPEN API (당일 전종목, 종목명·시총 포함)
+- 지표용 OHLCV 시계열: FinanceDataReader (개별종목 1회 호출)
+- 외국인/기관 수급: 현재 비활성 (KRX OPEN API에 미제공, 추후 별도 소스)
 """
 
 from __future__ import annotations
@@ -13,24 +18,20 @@ from kor_trading.adapters.outbound.claude_code_classifier import (
 )
 from kor_trading.adapters.outbound.dart_corp_code_resolver import DartCorpCodeResolver
 from kor_trading.adapters.outbound.dart_disclosure import DartDisclosureProvider
-from kor_trading.adapters.outbound.fdr_ticker_name_resolver import (
-    FinanceDataReaderNameResolver,
-)
+from kor_trading.adapters.outbound.fdr_ohlcv import FdrOhlcvProvider
 from kor_trading.adapters.outbound.filesystem_report_repository import (
     FileSystemReportRepository,
 )
-from kor_trading.adapters.outbound.pykrx_investor_flow import PykrxInvestorFlowProvider
-from kor_trading.adapters.outbound.pykrx_market_snapshot import (
-    PykrxMarketSnapshotProvider,
+from kor_trading.adapters.outbound.krx_openapi_client import KrxOpenApiClient
+from kor_trading.adapters.outbound.krx_openapi_market_snapshot import (
+    KrxOpenApiMarketSnapshotProvider,
 )
-from kor_trading.adapters.outbound.pykrx_ohlcv import PykrxOhlcvProvider
 from kor_trading.adapters.outbound.telegram_notifier import TelegramNotifier
 from kor_trading.application.use_cases.analyze_indicators import AnalyzeIndicatorsUseCase
 from kor_trading.application.use_cases.analyze_issues import AnalyzeIssuesUseCase
 from kor_trading.application.use_cases.generate_report import GenerateReportUseCase
 from kor_trading.application.use_cases.run_pipeline import RunPipelineUseCase
 from kor_trading.application.use_cases.select_stocks import SelectStocksUseCase
-from kor_trading.infrastructure.krx_auth import configure_krx_login
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -47,14 +48,9 @@ def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -
     """Composition Root: 어댑터 ↔ 유스케이스 연결."""
     _ = config  # 추후 use case별 옵션 주입 시 사용
 
-    # KRX 포털 로그인 자격증명 주입 (pykrx 데이터 조회에 필요).
-    # 자격증명이 없으면 pykrx 어댑터가 "LOGOUT" 응답으로 빈 결과를 반환한다.
-    configure_krx_login(secrets.krx_id, secrets.krx_pw)
-
-    name_resolver = FinanceDataReaderNameResolver()
-    market_provider = PykrxMarketSnapshotProvider(name_resolver=name_resolver)
-    ohlcv_provider = PykrxOhlcvProvider()
-    flow_provider = PykrxInvestorFlowProvider()
+    krx_client = KrxOpenApiClient(auth_key=secrets.krx_api_key or "")
+    market_provider = KrxOpenApiMarketSnapshotProvider(client=krx_client)
+    ohlcv_provider = FdrOhlcvProvider()
     corp_code_resolver = DartCorpCodeResolver(
         api_key=secrets.dart_api_key,
         cache_path=data_base_path / "cache" / "corp_code.json",
@@ -70,9 +66,8 @@ def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -
     )
 
     select_uc = SelectStocksUseCase(market_snapshots=market_provider)
-    analyze_uc = AnalyzeIndicatorsUseCase(
-        ohlcv_provider=ohlcv_provider, flow_provider=flow_provider
-    )
+    # flow_provider=None: 외국인/기관 수급은 KRX OPEN API 미제공으로 비활성
+    analyze_uc = AnalyzeIndicatorsUseCase(ohlcv_provider=ohlcv_provider)
     issues_uc = AnalyzeIssuesUseCase(disclosure_provider=disclosure_provider, classifier=classifier)
     report_uc = GenerateReportUseCase(repository=repository, notifier=notifier)
 
