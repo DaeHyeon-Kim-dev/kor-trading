@@ -61,6 +61,10 @@ class ScheduleConfig(BaseModel):
         return self.start_time <= now.time() <= self.end_time
 
 
+def _default_markets() -> list[Market]:
+    return ["KOSPI", "KOSDAQ"]
+
+
 class SelectionConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -69,7 +73,7 @@ class SelectionConfig(BaseModel):
     plunge_top_n: int = Field(ge=0)
     market_cap_min_krw: int = Field(ge=0)
     max_candidates: int = Field(gt=0)
-    markets: list[Market]
+    markets: list[Market] = Field(default_factory=_default_markets)
 
 
 class IndicatorsConfig(BaseModel):

@@ -48,6 +48,7 @@ class TestCli:
         result = runner.invoke(
             app,
             [
+                "run",
                 "--config",
                 str(setup_env),
                 "--data",
@@ -59,5 +60,5 @@ class TestCli:
 
     def test_unknown_option_returns_non_zero(self, setup_env: Path) -> None:
         runner = CliRunner()
-        result = runner.invoke(app, ["--bogus-flag"])
+        result = runner.invoke(app, ["run", "--bogus-flag"])
         assert result.exit_code != 0
