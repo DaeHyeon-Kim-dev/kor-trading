@@ -74,6 +74,36 @@ class TestNormalFlow:
         # 당일 공시 → decay 1.0, impact high=1.0, confidence 0.9 → 0.9
         assert result.score_for("005930") > 0.8
 
+    def test_noise_disclosure_filtered_before_classify(self) -> None:
+        # 노이즈 공시만 있으면 분류도 안 하고 item 없음
+        disc = FakeDisclosureProvider()
+        disc.add(
+            "005930",
+            [
+                _disclosure("005930", "임원ㆍ주요주주특정증권등소유상황보고서"),
+                _disclosure("005930", "대규모기업집단현황공시"),
+            ],
+        )
+        clf = FakeSentimentClassifier(default=_positive())
+        uc = AnalyzeIssuesUseCase(disclosure_provider=disc, classifier=clf)
+        result = uc.execute([_t()], AS_OF)
+        assert result.items == ()
+
+    def test_material_kept_noise_dropped(self) -> None:
+        disc = FakeDisclosureProvider()
+        disc.add(
+            "005930",
+            [
+                _disclosure("005930", "단일판매ㆍ공급계약체결"),
+                _disclosure("005930", "임원ㆍ주요주주특정증권등소유상황보고서"),
+            ],
+        )
+        clf = FakeSentimentClassifier(default=_positive())
+        uc = AnalyzeIssuesUseCase(disclosure_provider=disc, classifier=clf)
+        result = uc.execute([_t()], AS_OF)
+        assert len(result.items[0].issues) == 1  # 재료만 통과
+        assert "공급계약" in result.items[0].issues[0].title
+
     def test_unclassifiable_disclosure_skipped(self) -> None:
         disc = FakeDisclosureProvider()
         disc.add(
