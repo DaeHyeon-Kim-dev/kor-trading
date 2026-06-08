@@ -7,6 +7,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from kor_trading.domain.services.indicator_explainer import (
+    explain_indicators,
+    summarize_signal,
+)
 from kor_trading.domain.values.recommendation import RecommendationLevel
 
 if TYPE_CHECKING:
@@ -118,19 +122,25 @@ def render_evidence_md(
         f"| **거래대금**: {candidate.snapshot.trading_value:,}원",
         "",
         "## 4관점 판정",
-        "| 관점 | 추천 | 점수 |",
-        "|------|------|------|",
+        "| 관점 | 추천 | 점수 | 근거 |",
+        "|------|------|------|------|",
     ]
     for h_id in ("ultra_short", "short", "medium", "long"):
         rec = recommendations.get(h_id)
         if rec is None:
             continue
         label = _HORIZON_LABELS[h_id]
-        lines.append(f"| {label} | {_LEVEL_LABELS[rec.level]} | {rec.score.value:+.2f} |")
+        lines.append(
+            f"| {label} | {_LEVEL_LABELS[rec.level]} | {rec.score.value:+.2f} | {rec.rationale} |"
+        )
     lines.append("")
 
     if snapshot is not None:
-        lines.append("## 지표 상세")
+        lines.append("## 지표 해석")
+        for line in explain_indicators(snapshot):
+            lines.append(f"- {line}")
+        lines.append("")
+        lines.append("## 지표 상세(원시값)")
         lines.extend(_render_indicator_block(snapshot))
         lines.append("")
 
@@ -176,19 +186,25 @@ def _render_card(
         f"| 거래대금: {candidate.snapshot.trading_value:,}원",
         f"- 선정 사유: {', '.join(candidate.selection_reasons)}",
         "",
-        "| 관점 | 추천 |",
-        "|------|------|",
+        "| 관점 | 추천 | 근거 |",
+        "|------|------|------|",
     ]
     for h_id in ("ultra_short", "short", "medium", "long"):
         rec = recs.get(h_id)
         if rec is None:
-            parts.append(f"| {_HORIZON_LABELS[h_id]} | — |")
+            parts.append(f"| {_HORIZON_LABELS[h_id]} | — | — |")
         else:
-            parts.append(f"| {_HORIZON_LABELS[h_id]} | {_LEVEL_LABELS[rec.level]} |")
+            parts.append(
+                f"| {_HORIZON_LABELS[h_id]} | {_LEVEL_LABELS[rec.level]} | {rec.rationale} |"
+            )
 
     if snapshot is not None:
         parts.append("")
-        parts.append(f"**지표 요약**: {_short_indicator_summary(snapshot)}")
+        parts.append(f"**지표 요약**: {summarize_signal(snapshot)}")
+        parts.append("")
+        parts.append("**지표 해석**:")
+        for line in explain_indicators(snapshot):
+            parts.append(f"- {line}")
 
     if issues:
         parts.append("")
@@ -211,19 +227,6 @@ def _issue_line(issue: Issue) -> str:
         f"[{issue.source.value}, {issue.date:%m/%d}, {issue.recency_days}일 전, "
         f"{mark}/{issue.impact.value}] {issue.title}"
     )
-
-
-def _short_indicator_summary(snapshot: IndicatorSnapshot) -> str:
-    pieces: list[str] = []
-    if snapshot.sma_alignment:
-        pieces.append(f"SMA {snapshot.sma_alignment}")
-    if snapshot.macd_position:
-        pieces.append(f"MACD {snapshot.macd_position}")
-    if snapshot.rsi_14 is not None:
-        pieces.append(f"RSI {snapshot.rsi_14:.1f}")
-    if snapshot.bb_position:
-        pieces.append(f"BB {snapshot.bb_position}")
-    return ", ".join(pieces) if pieces else "데이터 부족"
 
 
 def _render_indicator_block(snapshot: IndicatorSnapshot) -> list[str]:
