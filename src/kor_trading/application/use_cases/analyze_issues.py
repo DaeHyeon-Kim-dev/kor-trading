@@ -12,6 +12,7 @@ from kor_trading.application.dto.issue_analysis import (
     IssueAnalysisItem,
     IssueAnalysisResult,
 )
+from kor_trading.domain.services.disclosure_filter import is_noise_disclosure
 from kor_trading.domain.services.issue_factory import build_issue
 from kor_trading.domain.services.issue_scoring import aggregate_issue_score
 
@@ -72,11 +73,13 @@ class AnalyzeIssuesUseCase:
         self, ticker: Ticker, as_of: date, lookback_days: int, max_issues: int
     ) -> IssueAnalysisItem | None:
         disclosures = self.disclosure_provider.get_recent(ticker.code, as_of, lookback_days)
-        if not disclosures:
+        # 노이즈 공시(임원 소유상황·기업집단현황 등)는 분류 전 제외
+        material = [d for d in disclosures if not is_noise_disclosure(d.title)]
+        if not material:
             return None
 
         issues: list[Issue] = []
-        for disclosure in disclosures[:max_issues]:
+        for disclosure in material[:max_issues]:
             issue = self._to_issue(disclosure, as_of)
             if issue is not None:
                 issues.append(issue)
