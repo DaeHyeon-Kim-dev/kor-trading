@@ -8,29 +8,30 @@ from kor_trading.domain.values.score import Score
 
 
 class TestThresholdClassification:
-    def test_strong_buy_at_0_5(self) -> None:
+    def test_strong_buy_at_threshold(self) -> None:
         t = RecommendationThresholds()
-        assert t.classify(Score(0.5)) == RecommendationLevel.STRONG_BUY
+        assert t.classify(Score(0.55)) == RecommendationLevel.STRONG_BUY
         assert t.classify(Score(0.9)) == RecommendationLevel.STRONG_BUY
 
-    def test_buy_between_0_2_and_0_5(self) -> None:
+    def test_buy_band(self) -> None:
         t = RecommendationThresholds()
-        assert t.classify(Score(0.3)) == RecommendationLevel.BUY
-        assert t.classify(Score(0.2)) == RecommendationLevel.BUY
+        assert t.classify(Score(0.4)) == RecommendationLevel.BUY
+        assert t.classify(Score(0.35)) == RecommendationLevel.BUY
 
-    def test_hold_in_neutral_band(self) -> None:
+    def test_weak_positive_is_hold(self) -> None:
+        # 약한 양의 점수(0.3)는 Buy가 아니라 Hold (스윙 엄격화)
         t = RecommendationThresholds()
+        assert t.classify(Score(0.3)) == RecommendationLevel.HOLD
         assert t.classify(Score(0.0)) == RecommendationLevel.HOLD
-        assert t.classify(Score(0.1)) == RecommendationLevel.HOLD
-        assert t.classify(Score(-0.1)) == RecommendationLevel.HOLD
+        assert t.classify(Score(-0.3)) == RecommendationLevel.HOLD
 
-    def test_sell_between_minus_0_5_and_minus_0_2(self) -> None:
+    def test_sell_band(self) -> None:
         t = RecommendationThresholds()
-        assert t.classify(Score(-0.3)) == RecommendationLevel.SELL
+        assert t.classify(Score(-0.4)) == RecommendationLevel.SELL
 
-    def test_strong_sell_at_or_below_minus_0_5(self) -> None:
+    def test_strong_sell(self) -> None:
         t = RecommendationThresholds()
-        assert t.classify(Score(-0.5)) == RecommendationLevel.STRONG_SELL
+        assert t.classify(Score(-0.55)) == RecommendationLevel.STRONG_SELL
         assert t.classify(Score(-1.0)) == RecommendationLevel.STRONG_SELL
 
     def test_custom_thresholds(self) -> None:

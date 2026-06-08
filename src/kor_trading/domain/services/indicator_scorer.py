@@ -86,8 +86,12 @@ class IndicatorScores:
 def compute_scores(
     snap: IndicatorSnapshot, weights: dict[Category, float] | None = None
 ) -> IndicatorScores:
-    """IndicatorSnapshot → IndicatorScores. None 필드는 0점으로 처리."""
-    w = weights if weights is not None else _DEFAULT_WEIGHTS
+    """IndicatorSnapshot → IndicatorScores.
+
+    데이터가 없는 카테고리(예: 수급 미제공)는 가중치에서 제외하고 재정규화한다.
+    그렇지 않으면 죽은 카테고리(가중치 0.30의 flow)가 전체 점수를 희석한다.
+    """
+    base_w = weights if weights is not None else _DEFAULT_WEIGHTS
     cat: dict[Category, Score] = {
         "trend": Score(_trend_score(snap)),
         "momentum": Score(_momentum_score(snap)),
@@ -95,12 +99,41 @@ def compute_scores(
         "volume": Score(_volume_score(snap)),
         "flow": Score(_flow_score(snap)),
     }
-    overall = Score(_weighted_sum(cat, w))
+    available = _available_categories(snap)
+    overall = Score(_weighted_sum(cat, _effective_weights(base_w, available)))
     horizons: tuple[Horizon, ...] = ("ultra_short", "short", "medium", "long")
     by_horizon: dict[Horizon, Score] = {
-        h: Score(_weighted_sum(cat, _HORIZON_WEIGHTS[h])) for h in horizons
+        h: Score(_weighted_sum(cat, _effective_weights(_HORIZON_WEIGHTS[h], available)))
+        for h in horizons
     }
     return IndicatorScores(category=cat, overall=overall, by_horizon=by_horizon)
+
+
+def _available_categories(snap: IndicatorSnapshot) -> set[Category]:
+    """데이터가 있는 카테고리만. flow는 수급 데이터 있을 때만 포함."""
+    available: set[Category] = {"trend", "momentum", "volatility", "volume"}
+    if any(
+        v is not None
+        for v in (
+            snap.foreign_net_buy_5d,
+            snap.foreign_net_buy_20d,
+            snap.institution_net_buy_5d,
+            snap.institution_net_buy_20d,
+        )
+    ):
+        available.add("flow")
+    return available
+
+
+def _effective_weights(
+    base: dict[Category, float], available: set[Category]
+) -> dict[Category, float]:
+    """available 카테고리만 남기고 가중치 합이 1이 되도록 재정규화."""
+    kept = {c: w for c, w in base.items() if c in available}
+    total = sum(kept.values())
+    if total <= 0:  # pragma: no cover (방어)
+        return kept
+    return {c: w / total for c, w in kept.items()}
 
 
 # ──────────────────────── category scorers ────────────────────────
@@ -204,7 +237,8 @@ def _flow_score(snap: IndicatorSnapshot) -> float:
 
 
 def _weighted_sum(cat: dict[Category, Score], w: dict[Category, float]) -> float:
-    return _clip(sum(cat[c].value * w[c] for c in cat))
+    # w(유효 가중치)에 있는 카테고리만 합산
+    return _clip(sum(cat[c].value * weight for c, weight in w.items()))
 
 
 def _clip(value: float) -> float:

@@ -145,6 +145,27 @@ class TestOverall:
         assert scores.overall.value > 0.5
 
 
+class TestFlowRenormalization:
+    def test_no_flow_data_renormalizes(self) -> None:
+        # 수급 데이터 없음 → flow(가중치 0.30) 제외, 나머지로 재정규화.
+        # 추세 만점(1.0)이면 재정규화로 trend 가중치 0.25→0.357 상승 → overall 0.357.
+        # (재정규화 안 하면 0.25로 희석되어 Buy(0.35) 미달)
+        snap = _snap(
+            sma_alignment="bullish",
+            macd_position="above_zero",
+            macd_cross="golden_recent",
+        )
+        scores_no_flow = compute_scores(snap)
+        assert scores_no_flow.overall.value == pytest.approx(0.357, abs=0.01)
+        assert scores_no_flow.category["trend"].value == 1.0
+
+    def test_flow_included_when_data_present(self) -> None:
+        snap = _snap(sma_alignment="bullish", foreign_net_buy_5d=1_000_000_000)
+        scores = compute_scores(snap)
+        # flow 데이터 있으면 flow 카테고리가 점수에 기여
+        assert scores.overall.value != 0.0
+
+
 class TestHorizonScores:
     def test_all_four_horizons_present(self) -> None:
         scores = compute_scores(_snap())
