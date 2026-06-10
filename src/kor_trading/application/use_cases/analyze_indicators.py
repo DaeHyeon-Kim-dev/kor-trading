@@ -76,9 +76,9 @@ class AnalyzeIndicatorsUseCase:
     def _fetch_flows(self, tickers: list[Ticker], as_of: date) -> dict[str, InvestorFlow]:
         if self.flow_provider is None:
             return {}
-        markets = tuple({t.market for t in tickers})
+        ticker_codes = [t.code for t in tickers]
         try:
-            return self.flow_provider.get_flows(markets, as_of)
+            return self.flow_provider.get_flows(ticker_codes, as_of)
         except Exception as e:  # 한 어댑터 실패가 지표 분석 전체를 막지 않도록
             log.error("indicator.flow_fetch_failed", error=str(e))
             return {}

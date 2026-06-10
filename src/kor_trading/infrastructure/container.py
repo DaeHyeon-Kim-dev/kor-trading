@@ -22,6 +22,8 @@ from kor_trading.adapters.outbound.fdr_ohlcv import FdrOhlcvProvider
 from kor_trading.adapters.outbound.filesystem_report_repository import (
     FileSystemReportRepository,
 )
+from kor_trading.adapters.outbound.kis_client import KisClient
+from kor_trading.adapters.outbound.kis_investor_flow import KisInvestorFlowProvider
 from kor_trading.adapters.outbound.krx_openapi_client import KrxOpenApiClient
 from kor_trading.adapters.outbound.krx_openapi_market_snapshot import (
     KrxOpenApiMarketSnapshotProvider,
@@ -51,6 +53,13 @@ def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -
     krx_client = KrxOpenApiClient(auth_key=secrets.krx_api_key or "")
     market_provider = KrxOpenApiMarketSnapshotProvider(client=krx_client)
     ohlcv_provider = FdrOhlcvProvider()
+    # 외국인/기관 수급 — KIS 앱키가 있으면 활성, 없으면 None(비활성)
+    kis_client = KisClient(
+        app_key=secrets.kis_app_key,
+        app_secret=secrets.kis_app_secret,
+        virtual=secrets.kis_env == "virtual",
+    )
+    flow_provider = KisInvestorFlowProvider(client=kis_client) if kis_client.enabled else None
     corp_code_resolver = DartCorpCodeResolver(
         api_key=secrets.dart_api_key,
         cache_path=data_base_path / "cache" / "corp_code.json",
@@ -66,8 +75,9 @@ def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -
     )
 
     select_uc = SelectStocksUseCase(market_snapshots=market_provider)
-    # flow_provider=None: 외국인/기관 수급은 KRX OPEN API 미제공으로 비활성
-    analyze_uc = AnalyzeIndicatorsUseCase(ohlcv_provider=ohlcv_provider)
+    analyze_uc = AnalyzeIndicatorsUseCase(
+        ohlcv_provider=ohlcv_provider, flow_provider=flow_provider
+    )
     issues_uc = AnalyzeIssuesUseCase(disclosure_provider=disclosure_provider, classifier=classifier)
     report_uc = GenerateReportUseCase(repository=repository, notifier=notifier)
 
