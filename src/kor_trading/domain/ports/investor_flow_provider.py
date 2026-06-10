@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import date
-
-    from kor_trading.domain.entities.ticker import Market
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,9 +22,10 @@ class InvestorFlow:
 
 @runtime_checkable
 class InvestorFlowProvider(Protocol):
-    """시장 단위로 batch fetch — 종목당 호출이 아니라 시장당 호출.
+    """종목 리스트의 외국인·기관 수급을 조회.
 
-    반환: {ticker_code: InvestorFlow}
+    KIS 등 종목별 조회 어댑터가 구현. 반환: {ticker_code: InvestorFlow}
+    조회 실패·미제공 종목은 결과에서 생략한다.
     """
 
-    def get_flows(self, markets: tuple[Market, ...], as_of: date) -> dict[str, InvestorFlow]: ...
+    def get_flows(self, ticker_codes: Sequence[str], as_of: date) -> dict[str, InvestorFlow]: ...

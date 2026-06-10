@@ -39,6 +39,7 @@ class Secrets(BaseSettings):
     kis_app_key: str | None = None
     kis_app_secret: str | None = None
     kis_account_no: str | None = None
+    kis_env: str = "prod"  # prod | virtual
 
 
 class ScheduleConfig(BaseModel):

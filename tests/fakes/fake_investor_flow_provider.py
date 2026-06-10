@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import date
 
-    from kor_trading.domain.entities.ticker import Market
     from kor_trading.domain.ports.investor_flow_provider import InvestorFlow
 
 
@@ -22,8 +22,8 @@ class FakeInvestorFlowProvider:
     def configure_failure(self, on: bool = True) -> None:
         self._raise = on
 
-    def get_flows(self, markets: tuple[Market, ...], as_of: date) -> dict[str, InvestorFlow]:
-        _ = (markets, as_of)
+    def get_flows(self, ticker_codes: Sequence[str], as_of: date) -> dict[str, InvestorFlow]:
+        _ = (ticker_codes, as_of)
         if self._raise:
             raise RuntimeError("fake flow provider failure")
-        return dict(self._flows)
+        return {c: f for c, f in self._flows.items() if c in set(ticker_codes)}
