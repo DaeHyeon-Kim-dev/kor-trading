@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 import httpx
@@ -12,10 +13,8 @@ from kor_trading.adapters.outbound.kis_investor_flow import KisInvestorFlowProvi
 from kor_trading.domain.ports.investor_flow_provider import InvestorFlowProvider
 
 _TOKEN_URL = "https://openapi.koreainvestment.com:9443/oauth2/tokenP"
-_API_URL = (
-    "https://openapi.koreainvestment.com:9443"
-    "/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily"
-)
+_API_PATH = "/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily"
+_API_URL = f"https://openapi.koreainvestment.com:9443{_API_PATH}"
 AS_OF = date(2025, 6, 2)
 
 
@@ -32,6 +31,20 @@ class TestKisClientEnabled:
 
     def test_enabled_with_keys(self) -> None:
         assert _client().enabled is True
+
+
+class TestTokenConcurrency:
+    @respx.mock
+    def test_concurrent_calls_issue_token_once(self) -> None:
+        token_route = respx.post(_TOKEN_URL).mock(
+            return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 86400})
+        )
+        respx.get(_API_URL).mock(return_value=httpx.Response(200, json={"output2": []}))
+        c = _client()
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda _: c.get(_API_PATH, "T", {}), range(8)))
+        # 8개 동시 호출이어도 토큰은 1번만 발급
+        assert token_route.call_count == 1
 
 
 class TestKisToken:

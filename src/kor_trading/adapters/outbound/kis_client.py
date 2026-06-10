@@ -10,6 +10,7 @@ appkey/appsecret이 없으면 비활성(토큰 발급 시도 안 함).
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any
 
@@ -41,6 +42,8 @@ class KisClient:
         )
         self._token: str | None = None
         self._token_expiry: float = 0.0
+        # 병렬 워커가 토큰을 각자 발급(KIS는 발급 1분당 1회 제한)하지 않도록 직렬화
+        self._token_lock = threading.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -78,7 +81,11 @@ class KisClient:
             return None
         if self._token and time.monotonic() < self._token_expiry:
             return self._token
-        return self._issue_token()
+        # 이중 체크 락: 한 워커만 발급하고 나머지는 캐시된 토큰을 재사용
+        with self._token_lock:
+            if self._token and time.monotonic() < self._token_expiry:
+                return self._token
+            return self._issue_token()
 
     def _issue_token(self) -> str | None:
         body = {
