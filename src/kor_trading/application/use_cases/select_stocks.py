@@ -8,6 +8,7 @@ from kor_trading.application.dto.selection import (
     SelectionResult,
 )
 from kor_trading.domain.ports.market_snapshot_provider import MarketSnapshotProvider
+from kor_trading.domain.values.market_overview import summarize_market
 
 if TYPE_CHECKING:
     from kor_trading.domain.entities.stock_snapshot import StockSnapshot
@@ -20,6 +21,7 @@ class SelectStocksUseCase:
     def execute(self, criteria: SelectionCriteria, as_of: date) -> SelectionResult:
         snapshots = self.market_snapshots.get_market_snapshots(criteria.markets, as_of)
         total_screened = len(snapshots)
+        overview = summarize_market(snapshots)
 
         eligible = [s for s in snapshots if s.market_cap >= criteria.market_cap_min_krw]
 
@@ -71,4 +73,5 @@ class SelectStocksUseCase:
             as_of=as_of,
             total_screened=total_screened,
             candidates=tuple(candidates),
+            overview=overview,
         )

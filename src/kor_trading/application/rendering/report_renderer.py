@@ -11,6 +11,11 @@ from kor_trading.domain.services.indicator_explainer import (
     explain_indicators,
     summarize_signal,
 )
+from kor_trading.domain.services.risk_levels import (
+    STANDARD_MULTIPLIER,
+    TIGHT_MULTIPLIER,
+    atr_stop_loss,
+)
 from kor_trading.domain.values.recommendation import RecommendationLevel
 
 if TYPE_CHECKING:
@@ -23,6 +28,7 @@ if TYPE_CHECKING:
     from kor_trading.domain.entities.issue import Issue
     from kor_trading.domain.services.horizon_recommendation import HorizonRecommendation
     from kor_trading.domain.services.indicator_scorer import Horizon
+    from kor_trading.domain.values.market_overview import MarketOverview
 
 
 _LEVEL_LABELS: dict[RecommendationLevel, str] = {
@@ -62,6 +68,10 @@ def render_report_md(
         f"> 후보: {len(selection.candidates)}종목 | 전체 종목: {selection.total_screened}"
     )
     sections.append("")
+
+    if selection.overview is not None and selection.overview.breadths:
+        sections.extend(_render_overview(selection.overview))
+        sections.append("")
 
     sections.append("## 요약 테이블")
     sections.append("| 종목 | 코드 | 등락률 | 초단기 | 단기 | 중기 | 장기 |")
@@ -140,6 +150,10 @@ def render_evidence_md(
         for line in explain_indicators(snapshot):
             lines.append(f"- {line}")
         lines.append("")
+        if snapshot.atr_14 is not None:
+            lines.append("## 손절 가이드")
+            lines.extend(_atr_stop_lines(candidate.snapshot.close, snapshot.atr_14))
+            lines.append("")
         lines.append("## 지표 상세(원시값)")
         lines.extend(_render_indicator_block(snapshot))
         lines.append("")
@@ -156,6 +170,37 @@ def render_evidence_md(
 
 
 # ──────────────────────── helpers ────────────────────────
+
+_JO = 1_000_000_000_000  # 1조
+_EOK = 100_000_000  # 1억
+
+
+def _render_overview(overview: MarketOverview) -> list[str]:
+    lines = ["## 시장 개요"]
+    for b in overview.breadths:
+        lines.append(
+            f"- **{b.market}**: {b.sentiment} | "
+            f"상승 {b.advancers} · 하락 {b.decliners} · 보합 {b.unchanged} "
+            f"(총 {b.total}) | 평균 {b.avg_change_pct:+.2f}% | "
+            f"거래대금 {_fmt_won(b.total_trading_value)}"
+        )
+    return lines
+
+
+def _fmt_won(won: int) -> str:
+    if abs(won) >= _JO:
+        return f"{won / _JO:,.1f}조"
+    return f"{won / _EOK:,.0f}억"
+
+
+def _atr_stop_lines(close: int, atr: float) -> list[str]:
+    tight = atr_stop_loss(close, atr, TIGHT_MULTIPLIER)
+    standard = atr_stop_loss(close, atr, STANDARD_MULTIPLIER)
+    return [
+        "**손절 가이드(ATR 14)**:",
+        f"- 타이트(1.5x ATR): {tight.price:,}원 ({tight.pct:+.1f}%)",
+        f"- 표준(2.0x ATR): {standard.price:,}원 ({standard.pct:+.1f}%)",
+    ]
 
 
 def _compact_label(rec: HorizonRecommendation | None) -> str:
@@ -205,6 +250,9 @@ def _render_card(
         parts.append("**지표 해석**:")
         for line in explain_indicators(snapshot):
             parts.append(f"- {line}")
+        if snapshot.atr_14 is not None:
+            parts.append("")
+            parts.extend(_atr_stop_lines(candidate.snapshot.close, snapshot.atr_14))
 
     if issues:
         parts.append("")
