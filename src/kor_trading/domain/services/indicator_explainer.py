@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 _RSI_OVERBOUGHT = 70.0
 _RSI_STRONG = 50.0
 _RSI_OVERSOLD = 30.0
+_MILLIONS_PER_EOK = 100  # 1억원 = 100백만원 (수급 거래대금 단위 환산)
 
 _ALIGNMENT_KO: dict[str, str] = {
     "bullish": "정배열(단기>장기, 상승추세)",
@@ -144,8 +145,10 @@ def _rsi_label(rsi: float) -> str:
 
 
 def _flow_label(amount: int) -> str:
+    # amount는 백만원 단위(KIS *_ntby_tr_pbmn). 1억원 = 100백만원.
+    eok = amount / _MILLIONS_PER_EOK
     if amount > 0:
-        return f"순매수 +{amount / 1e8:,.0f}억(매수 우위)"
+        return f"순매수 +{eok:,.0f}억(매수 우위)"
     if amount < 0:
-        return f"순매도 {amount / 1e8:,.0f}억(매도 우위)"
+        return f"순매도 {eok:,.0f}억(매도 우위)"
     return "중립"
