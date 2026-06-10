@@ -3,6 +3,7 @@ from datetime import date
 
 from kor_trading.domain.entities.stock_snapshot import StockSnapshot
 from kor_trading.domain.entities.ticker import Market
+from kor_trading.domain.values.market_overview import MarketOverview
 
 VALID_SELECTION_REASONS: frozenset[str] = frozenset({"top_volume", "surge", "plunge"})
 
@@ -52,6 +53,7 @@ class SelectionResult:
     as_of: date
     total_screened: int
     candidates: tuple[SelectionCandidate, ...] = field(default_factory=tuple)
+    overview: MarketOverview | None = None
 
     def __post_init__(self) -> None:
         if self.total_screened < 0:

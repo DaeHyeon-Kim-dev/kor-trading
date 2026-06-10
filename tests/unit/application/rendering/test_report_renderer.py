@@ -26,6 +26,7 @@ from kor_trading.domain.services.horizon_recommendation import (
     derive_horizon_recommendations,
 )
 from kor_trading.domain.services.indicator_scorer import compute_scores
+from kor_trading.domain.values.market_overview import MarketBreadth, MarketOverview
 
 AS_OF = date(2026, 5, 26)
 
@@ -124,6 +125,91 @@ class TestRenderReport:
         assert "005930" in md
         assert "## 요약 테이블" in md
         assert "## 종목별 상세" in md
+
+    def test_includes_market_overview_section(self) -> None:
+        ticker = _ticker()
+        ind_snap = _indicator_snap(ticker)
+        recs = derive_horizon_recommendations(compute_scores(ind_snap))
+        overview = MarketOverview(
+            breadths=(
+                MarketBreadth(
+                    market="KOSPI",
+                    total=950,
+                    advancers=600,
+                    decliners=320,
+                    unchanged=30,
+                    avg_change_pct=0.42,
+                    total_trading_value=8_200_000_000_000,  # 8.2조
+                ),
+                MarketBreadth(
+                    market="KOSDAQ",
+                    total=1600,
+                    advancers=500,
+                    decliners=1050,
+                    unchanged=50,
+                    avg_change_pct=-0.85,
+                    total_trading_value=560_000_000_000,  # 5,600억
+                ),
+            )
+        )
+        selection = SelectionResult(
+            as_of=AS_OF, total_screened=2550, candidates=(_candidate(ticker),), overview=overview
+        )
+        indicators = IndicatorAnalysisResult(
+            as_of=AS_OF,
+            items=(IndicatorAnalysisItem(snapshot=ind_snap, scores=compute_scores(ind_snap)),),
+            errors=(),
+        )
+        md = render_report_md(
+            as_of=AS_OF,
+            selection=selection,
+            indicators=indicators,
+            horizon_recommendations={ticker.code: recs},
+        )
+        assert "## 시장 개요" in md
+        assert "KOSPI" in md and "강세" in md
+        assert "상승 600 · 하락 320 · 보합 30" in md
+        assert "+0.42%" in md
+        assert "8.2조" in md  # 조 단위 포맷
+        assert "KOSDAQ" in md and "약세" in md
+        assert "5,600억" in md  # 억 단위 포맷
+
+    def test_card_includes_atr_stop_loss(self) -> None:
+        ticker = _ticker()
+        ind_snap = _indicator_snap(ticker)  # close 78,500 / atr 1,850
+        recs = derive_horizon_recommendations(compute_scores(ind_snap))
+        selection = SelectionResult(as_of=AS_OF, total_screened=1, candidates=(_candidate(ticker),))
+        indicators = IndicatorAnalysisResult(
+            as_of=AS_OF,
+            items=(IndicatorAnalysisItem(snapshot=ind_snap, scores=compute_scores(ind_snap)),),
+            errors=(),
+        )
+        md = render_report_md(
+            as_of=AS_OF,
+            selection=selection,
+            indicators=indicators,
+            horizon_recommendations={ticker.code: recs},
+        )
+        assert "손절 가이드(ATR 14)" in md
+        assert "74,800원" in md  # 78500 - 2*1850
+        assert "75,725원" in md  # 78500 - 1.5*1850
+
+    def test_evidence_includes_atr_stop_loss(self) -> None:
+        ticker = _ticker()
+        ind_snap = _indicator_snap(ticker)
+        recs = derive_horizon_recommendations(compute_scores(ind_snap))
+        md = render_evidence_md(
+            candidate=_candidate(ticker), snapshot=ind_snap, recommendations=recs
+        )
+        assert "## 손절 가이드" in md
+        assert "74,800원" in md
+
+    def test_evidence_without_atr_skips_stop_loss(self) -> None:
+        ticker = _ticker()
+        snap = IndicatorSnapshot(ticker=ticker, as_of=AS_OF, rsi_14=55.0)  # atr_14 None
+        recs = derive_horizon_recommendations(compute_scores(snap))
+        md = render_evidence_md(candidate=_candidate(ticker), snapshot=snap, recommendations=recs)
+        assert "손절 가이드" not in md
 
     def test_includes_issue_lines_when_provided(self) -> None:
         ticker = _ticker()
