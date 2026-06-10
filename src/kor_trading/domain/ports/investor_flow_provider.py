@@ -12,7 +12,11 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class InvestorFlow:
-    """한 종목의 외국인·기관 누적 순매수(원, 거래대금 기준)."""
+    """한 종목의 외국인·기관 누적 순매수(거래대금, 백만원 단위).
+
+    KIS investor-trade-by-stock-daily의 *_ntby_tr_pbmn 필드는 백만원 단위다.
+    스코어러는 부호(매수/매도)만 사용하므로 단위 스케일은 점수에 영향 없음.
+    """
 
     foreign_net_5d: int | None = None
     foreign_net_20d: int | None = None

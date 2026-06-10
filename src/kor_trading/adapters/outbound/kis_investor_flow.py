@@ -7,8 +7,8 @@ API: /uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily (tr_id FHP
 응답 output2: 일자별 [stck_bsop_date, frgn_ntby_tr_pbmn(외국인 순매수 거래대금),
               orgn_ntby_tr_pbmn(기관 순매수 거래대금), ...]
 
-주의: output2 필드명은 KIS 표준 관례 기준. 실 키로 testbed 응답을 확인해
-필드명이 다르면 _COL_* 상수만 조정하면 된다.
+필드명·단위는 실 응답(005930, 2025-06-02)으로 검증 완료:
+*_ntby_tr_pbmn는 거래대금 백만원 단위. 스코어러는 부호만 사용하므로 단위 무관.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ _MARKET_DIV = "J"  # KRX
 _DEFAULT_WORKERS = 4
 _PER_TICKER_TIMEOUT_S = 20
 
-# output2 일자별 필드 (거래대금 원 기준) — 실 응답으로 검증 후 조정
+# output2 일자별 필드 (거래대금 백만원 단위) — 실 응답으로 검증 완료
 _COL_FOREIGN = "frgn_ntby_tr_pbmn"
 _COL_INSTITUTION = "orgn_ntby_tr_pbmn"
 

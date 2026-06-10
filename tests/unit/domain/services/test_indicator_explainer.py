@@ -54,12 +54,14 @@ class TestExplain:
         assert "수축" in bb_line
 
     def test_foreign_flow_buy(self) -> None:
-        lines = explain_indicators(_snap(foreign_net_buy_5d=12_500_000_000))
-        assert any("외국인" in line and "매수 우위" in line for line in lines)
+        # 백만원 단위: 12,500백만원 = 125억
+        lines = explain_indicators(_snap(foreign_net_buy_5d=12_500))
+        assert any("외국인" in line and "125억" in line and "매수 우위" in line for line in lines)
 
     def test_institution_flow_sell(self) -> None:
-        lines = explain_indicators(_snap(institution_net_buy_5d=-3_200_000_000))
-        assert any("기관" in line and "매도 우위" in line for line in lines)
+        # 백만원 단위: -3,200백만원 = -32억
+        lines = explain_indicators(_snap(institution_net_buy_5d=-3_200))
+        assert any("기관" in line and "32억" in line and "매도 우위" in line for line in lines)
 
     def test_obv_trend(self) -> None:
         lines = explain_indicators(_snap(obv_trend="up"))
