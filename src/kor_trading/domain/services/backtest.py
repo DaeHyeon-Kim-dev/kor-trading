@@ -30,6 +30,20 @@ _DEFAULT_MAX_HOLD = 20
 
 
 @dataclass(frozen=True, slots=True)
+class CostModel:
+    """체결가 대비 거래비용 비율(한국 주식 기본값).
+
+    매수: 수수료 ~0.015%. 매도: 수수료 ~0.015% + 거래세 ~0.18%.
+    """
+
+    buy_rate: float = 0.00015
+    sell_rate: float = 0.00195
+
+
+_ZERO_COST = CostModel(buy_rate=0.0, sell_rate=0.0)
+
+
+@dataclass(frozen=True, slots=True)
 class Trade:
     setup: str
     entry_date: date
@@ -58,6 +72,7 @@ def run_backtest(
     *,
     warmup: int = _DEFAULT_WARMUP,
     max_hold: int = _DEFAULT_MAX_HOLD,
+    cost: CostModel = _ZERO_COST,
 ) -> list[Trade]:
     """일봉을 워크포워드하며 셋업 진입→청산을 시뮬레이션."""
     trades: list[Trade] = []
@@ -68,24 +83,32 @@ def run_backtest(
         if not plans:
             i += 1
             continue
-        trade, held = _simulate(plans[0], bars[i], bars[i + 1 :], max_hold)
+        trade, held = _simulate(plans[0], bars[i], bars[i + 1 :], max_hold, cost)
         trades.append(trade)
         i += 1 + held  # 청산 다음 봉부터 재진입(중복 포지션 금지)
     return trades
 
 
 def _simulate(
-    plan: TradePlan, entry_bar: OhlcvBar, future: Sequence[OhlcvBar], max_hold: int
+    plan: TradePlan,
+    entry_bar: OhlcvBar,
+    future: Sequence[OhlcvBar],
+    max_hold: int,
+    cost: CostModel,
 ) -> tuple[Trade, int]:
     horizon = future[:max_hold]
     risk = plan.risk_per_share
     for offset, bar in enumerate(horizon):
         if bar.low <= plan.stop:  # 손절 우선(보수적)
-            return _trade(plan, entry_bar, bar, plan.stop, risk, "loss"), offset + 1
+            # 갭하락(시가가 손절가 아래)이면 시가에 체결 → 손실이 -1R보다 커짐
+            fill = bar.open if bar.open < plan.stop else plan.stop
+            return _trade(plan, entry_bar, bar, fill, risk, "loss", cost), offset + 1
         if bar.high >= plan.target1:
-            return _trade(plan, entry_bar, bar, plan.target1, risk, "win"), offset + 1
+            # 갭상승(시가가 목표 위)이면 시가에 체결
+            fill = bar.open if bar.open > plan.target1 else plan.target1
+            return _trade(plan, entry_bar, bar, fill, risk, "win", cost), offset + 1
     last = horizon[-1]
-    return _trade(plan, entry_bar, last, last.close, risk, "timeout"), len(horizon)
+    return _trade(plan, entry_bar, last, last.close, risk, "timeout", cost), len(horizon)
 
 
 def _trade(
@@ -95,14 +118,17 @@ def _trade(
     exit_price: int,
     risk: int,
     outcome: Outcome,
+    cost: CostModel,
 ) -> Trade:
+    fees = plan.entry * cost.buy_rate + exit_price * cost.sell_rate
+    net = (exit_price - plan.entry) - fees
     return Trade(
         setup=plan.setup,
         entry_date=entry_bar.date,
         exit_date=exit_bar.date,
         entry=plan.entry,
         exit_price=exit_price,
-        r_multiple=(exit_price - plan.entry) / risk,
+        r_multiple=net / risk,
         outcome=outcome,
     )
 

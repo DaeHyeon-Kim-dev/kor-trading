@@ -157,8 +157,8 @@ def market_md(as_of: dt.date) -> str:
 
 
 # ──────────────────────── 추천 스크리너 ────────────────────────
-# 실데이터 백테스트(2024~2025·18종목·88거래, 합성 2026 구간 제외) 측정 기대값.
-_SETUP_EXPECTANCY = {"돌파": 0.56, "추세 눌림목": 0.27, "과매도 반등": 0.18}
+# 실데이터 백테스트(2024~2025·18종목·88거래, 거래비용·갭 반영) 측정 기대값.
+_SETUP_EXPECTANCY = {"돌파": 0.53, "추세 눌림목": 0.26, "과매도 반등": 0.17}
 
 
 def screen_md(as_of: dt.date, top_n: int = 8) -> str:
@@ -222,7 +222,7 @@ def screen_md(as_of: dt.date, top_n: int = 8) -> str:
         out.append(f"\n_…외 {len(rows) - top_n}종목. 개별 상세는 /k-analyze <종목>._")
     out += [
         "",
-        "_과거기대값 = 실데이터 2024~2025 백테스트(거래비용 미반영). 수급 미반영(개별은 /k-analyze)._",
+        "_과거기대값 = 실데이터 2024~2025 백테스트(거래비용·갭 반영). 수급 미반영(개별은 /k-analyze)._",
     ]
     return "\n".join(out)
 
@@ -425,6 +425,7 @@ def backtest_md(
 ) -> str:
     from kor_trading.domain.entities.ticker import Ticker  # noqa: PLC0415
     from kor_trading.domain.services.backtest import (  # noqa: PLC0415
+        CostModel,
         aggregate,
         run_backtest,
     )
@@ -453,12 +454,12 @@ def backtest_md(
             w = list(b[-150:])
             return classify_setups(calculate_indicators(_t, w), w[-1].close)
 
-        all_trades += run_backtest(bars, sig, warmup=120, max_hold=max_hold)
+        all_trades += run_backtest(bars, sig, warmup=120, max_hold=max_hold, cost=CostModel())
 
     stats = aggregate(all_trades)
     out = [
         f"## 🧪 셋업 백테스트 — {tested}종목 / 최근 {lookback_bars}거래일 / 보유 {max_hold}일",
-        "_수급 데이터는 과거 미제공 → 수급주도 셋업은 미포함. 가격 기반 셋업만 검증._",
+        "_거래비용·갭 반영(왕복 ~0.21%). 수급 데이터 과거 미제공 → 수급주도 셋업 제외._",
         "",
         "| 셋업 | 거래 | 승률 | 기대값(R) | 손익비 | 평균익 | 평균손 | MDD(R) |",
         "|------|------|------|-----------|--------|--------|--------|--------|",
