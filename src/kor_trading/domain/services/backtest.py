@@ -97,38 +97,44 @@ def _simulate(
     cost: CostModel,
 ) -> tuple[Trade, int]:
     horizon = future[:max_hold]
-    risk = plan.risk_per_share
     for offset, bar in enumerate(horizon):
-        if bar.low <= plan.stop:  # 손절 우선(보수적)
-            # 갭하락(시가가 손절가 아래)이면 시가에 체결 → 손실이 -1R보다 커짐
-            fill = bar.open if bar.open < plan.stop else plan.stop
-            return _trade(plan, entry_bar, bar, fill, risk, "loss", cost), offset + 1
-        if bar.high >= plan.target1:
-            # 갭상승(시가가 목표 위)이면 시가에 체결
-            fill = bar.open if bar.open > plan.target1 else plan.target1
-            return _trade(plan, entry_bar, bar, fill, risk, "win", cost), offset + 1
+        ex = _exit_check(plan, bar)
+        if ex is not None:
+            outcome, fill = ex
+            return _trade(plan, entry_bar.date, bar.date, fill, outcome, cost), offset + 1
     last = horizon[-1]
-    return _trade(plan, entry_bar, last, last.close, risk, "timeout", cost), len(horizon)
+    return _trade(plan, entry_bar.date, last.date, last.close, "timeout", cost), len(horizon)
+
+
+def _exit_check(plan: TradePlan, bar: OhlcvBar) -> tuple[Outcome, int] | None:
+    """이 봉에서 손절/목표 도달 시 (결과, 체결가). 갭은 시가 체결. 아니면 None."""
+    if bar.low <= plan.stop:  # 손절 우선(보수적). 갭하락이면 시가 체결(-1R보다 나쁨)
+        return "loss", (bar.open if bar.open < plan.stop else plan.stop)
+    if bar.high >= plan.target1:  # 갭상승이면 시가 체결
+        return "win", (bar.open if bar.open > plan.target1 else plan.target1)
+    return None
+
+
+def _net_r(entry: int, exit_price: int, risk: int, cost: CostModel) -> float:
+    fees = entry * cost.buy_rate + exit_price * cost.sell_rate
+    return ((exit_price - entry) - fees) / risk
 
 
 def _trade(
     plan: TradePlan,
-    entry_bar: OhlcvBar,
-    exit_bar: OhlcvBar,
+    entry_date: date,
+    exit_date: date,
     exit_price: int,
-    risk: int,
     outcome: Outcome,
     cost: CostModel,
 ) -> Trade:
-    fees = plan.entry * cost.buy_rate + exit_price * cost.sell_rate
-    net = (exit_price - plan.entry) - fees
     return Trade(
         setup=plan.setup,
-        entry_date=entry_bar.date,
-        exit_date=exit_bar.date,
+        entry_date=entry_date,
+        exit_date=exit_date,
         entry=plan.entry,
         exit_price=exit_price,
-        r_multiple=net / risk,
+        r_multiple=_net_r(plan.entry, exit_price, plan.risk_per_share, cost),
         outcome=outcome,
     )
 
@@ -170,3 +176,38 @@ def _max_drawdown(rs: list[float]) -> float:
         peak = max(peak, cum)
         mdd = min(mdd, cum - peak)
     return mdd
+
+
+# ──────────────────────── 페이퍼 트레이딩 채점 ────────────────────────
+@dataclass(frozen=True, slots=True)
+class PaperOutcome:
+    status: Literal["win", "loss", "timeout", "open"]
+    r_multiple: float | None  # 미청산(open)이면 None
+    held_days: int | None  # 진입 다음봉부터 보유 일수, open이면 None
+
+
+def score_open_position(
+    plan: TradePlan,
+    future: Sequence[OhlcvBar],
+    *,
+    max_hold: int = _DEFAULT_MAX_HOLD,
+    cost: CostModel = _ZERO_COST,
+) -> PaperOutcome:
+    """로그된 셋업을 진입 이후 일봉(future)으로 채점.
+
+    손절/목표 도달 → win/loss(+R), max_hold 봉 다 채움 → timeout(종가청산),
+    아직 미도달이고 보유봉 < max_hold → open(미청산).
+    """
+    horizon = future[:max_hold]
+    for offset, bar in enumerate(horizon):
+        ex = _exit_check(plan, bar)
+        if ex is not None:
+            outcome, fill = ex
+            r = _net_r(plan.entry, fill, plan.risk_per_share, cost)
+            return PaperOutcome(outcome, r, offset + 1)
+    if len(future) >= max_hold:  # 보유 기간 만료 → 마지막 종가 청산
+        last = horizon[-1]
+        return PaperOutcome(
+            "timeout", _net_r(plan.entry, last.close, plan.risk_per_share, cost), max_hold
+        )
+    return PaperOutcome("open", None, None)
