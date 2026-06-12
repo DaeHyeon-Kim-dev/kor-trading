@@ -300,6 +300,67 @@ def analyze_md(query: str, as_of: dt.date) -> str:
     return "\n".join(out)
 
 
+# ──────────────────────── 백테스트 ────────────────────────
+def backtest_md(
+    codes: list[str], as_of: dt.date, lookback_bars: int = 300, top_n: int = 20, max_hold: int = 20
+) -> str:
+    from kor_trading.domain.entities.ticker import Ticker  # noqa: PLC0415
+    from kor_trading.domain.services.backtest import (  # noqa: PLC0415
+        aggregate,
+        run_backtest,
+    )
+    from kor_trading.domain.services.indicator_calculator import (  # noqa: PLC0415
+        calculate_indicators,
+    )
+
+    if codes:
+        targets = [s for s in (resolve(c, as_of) for c in codes) if s is not None]
+    else:
+        targets = sorted(universe(as_of), key=lambda s: s.trading_value, reverse=True)[:top_n]
+    if not targets:
+        return "❌ 백테스트 대상 종목을 찾지 못했습니다."
+
+    ohlcv = FdrOhlcvProvider()
+    all_trades = []
+    tested = 0
+    for snap in targets:
+        ticker = Ticker(code=snap.ticker.code, name=snap.ticker.name, market=snap.ticker.market)
+        bars = ohlcv.get_daily_bars(ticker.code, snap.as_of, lookback_bars)
+        if len(bars) < 130:  # 워밍업 부족
+            continue
+        tested += 1
+
+        def sig(b, _t=ticker):  # type: ignore[no-untyped-def]
+            w = list(b[-150:])
+            return classify_setups(calculate_indicators(_t, w), w[-1].close)
+
+        all_trades += run_backtest(bars, sig, warmup=120, max_hold=max_hold)
+
+    stats = aggregate(all_trades)
+    out = [
+        f"## 🧪 셋업 백테스트 — {tested}종목 / 최근 {lookback_bars}거래일 / 보유 {max_hold}일",
+        "_수급 데이터는 과거 미제공 → 수급주도 셋업은 미포함. 가격 기반 셋업만 검증._",
+        "",
+        "| 셋업 | 거래 | 승률 | 기대값(R) | 손익비 | 평균익 | 평균손 | MDD(R) |",
+        "|------|------|------|-----------|--------|--------|--------|--------|",
+    ]
+    if not stats:
+        out.append("| _발생 거래 없음_ | | | | | | | |")
+        return "\n".join(out)
+    for s in stats:
+        flag = "✅" if s.expectancy_r > 0 else "⚠️"
+        out.append(
+            f"| {flag} {s.setup} | {s.trades} | {s.win_rate:.0%} | {s.expectancy_r:+.2f} "
+            f"| {s.payoff:.1f} | {s.avg_win_r:+.2f} | {s.avg_loss_r:+.2f} | {s.max_drawdown_r:.1f} |"
+        )
+    total = len(all_trades)
+    avg_exp = sum(t.r_multiple for t in all_trades) / total if total else 0.0
+    out.append("")
+    out.append(f"**종합**: 총 {total}거래, 평균 기대값 {avg_exp:+.2f}R")
+    out.append("기대값 > 0 = 양의 기대값(유효), < 0 = 손실 셋업(제거/수정 대상)")
+    return "\n".join(out)
+
+
 # ──────────────────────── 수급 ────────────────────────
 def flow_md(query: str, as_of: dt.date) -> str:
     snap = resolve(query, as_of)
