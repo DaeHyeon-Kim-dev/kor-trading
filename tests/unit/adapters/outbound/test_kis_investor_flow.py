@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from typing import TYPE_CHECKING
 
 import httpx
 import respx
@@ -11,6 +14,9 @@ import respx
 from kor_trading.adapters.outbound.kis_client import KisClient
 from kor_trading.adapters.outbound.kis_investor_flow import KisInvestorFlowProvider
 from kor_trading.domain.ports.investor_flow_provider import InvestorFlowProvider
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _TOKEN_URL = "https://openapi.koreainvestment.com:9443/oauth2/tokenP"
 _API_PATH = "/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily"
@@ -31,6 +37,65 @@ class TestKisClientEnabled:
 
     def test_enabled_with_keys(self) -> None:
         assert _client().enabled is True
+
+
+class TestTokenDiskCache:
+    def _client(self, cache: Path) -> KisClient:
+        return KisClient(
+            app_key="k", app_secret="s", http_client=httpx.Client(), token_cache_path=cache
+        )
+
+    @respx.mock
+    def test_persists_and_reuses_across_instances(self, tmp_path: Path) -> None:
+        cache = tmp_path / "kis_token.json"
+        route = respx.post(_TOKEN_URL).mock(
+            return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 86400})
+        )
+        respx.get(_API_URL).mock(return_value=httpx.Response(200, json={"output2": []}))
+        # 1번째 인스턴스: 발급 + 디스크 기록
+        self._client(cache).get(_API_PATH, "T", {})
+        # 2번째 인스턴스(새 프로세스 모사): 디스크에서 토큰 재사용 → 재발급 없음
+        self._client(cache).get(_API_PATH, "T", {})
+        assert route.call_count == 1
+        assert cache.exists()
+
+    @respx.mock
+    def test_expired_disk_cache_reissues(self, tmp_path: Path) -> None:
+        cache = tmp_path / "kis_token.json"
+        cache.write_text(
+            json.dumps({"access_token": "old", "expiry_epoch": time.time() - 10}),
+            encoding="utf-8",
+        )
+        route = respx.post(_TOKEN_URL).mock(
+            return_value=httpx.Response(200, json={"access_token": "new", "expires_in": 86400})
+        )
+        respx.get(_API_URL).mock(return_value=httpx.Response(200, json={"output2": []}))
+        self._client(cache).get(_API_PATH, "T", {})
+        assert route.call_count == 1  # 만료 → 재발급
+
+    @respx.mock
+    def test_corrupt_disk_cache_reissues(self, tmp_path: Path) -> None:
+        cache = tmp_path / "kis_token.json"
+        cache.write_text("not json", encoding="utf-8")
+        route = respx.post(_TOKEN_URL).mock(
+            return_value=httpx.Response(200, json={"access_token": "new", "expires_in": 86400})
+        )
+        respx.get(_API_URL).mock(return_value=httpx.Response(200, json={"output2": []}))
+        self._client(cache).get(_API_PATH, "T", {})
+        assert route.call_count == 1
+
+    @respx.mock
+    def test_write_failure_is_tolerated(self, tmp_path: Path) -> None:
+        # 부모가 파일이면 mkdir 실패(OSError) → 발급은 성공해야 함
+        blocker = tmp_path / "blocker"
+        blocker.write_text("x", encoding="utf-8")
+        cache = blocker / "kis_token.json"
+        respx.post(_TOKEN_URL).mock(
+            return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 86400})
+        )
+        respx.get(_API_URL).mock(return_value=httpx.Response(200, json={"output2": []}))
+        # 예외 없이 정상 동작
+        assert self._client(cache).get(_API_PATH, "T", {}) == {"output2": []}
 
 
 class TestTokenConcurrency:
