@@ -16,6 +16,7 @@ from kor_trading.domain.services.risk_levels import (
     TIGHT_MULTIPLIER,
     atr_stop_loss,
 )
+from kor_trading.domain.services.setup_classifier import classify_setups
 from kor_trading.domain.values.recommendation import RecommendationLevel
 
 if TYPE_CHECKING:
@@ -150,6 +151,11 @@ def render_evidence_md(
         for line in explain_indicators(snapshot):
             lines.append(f"- {line}")
         lines.append("")
+        setup_lines = _render_setups(candidate.snapshot.close, snapshot)
+        if setup_lines:
+            lines.append("## 셋업 & 매매플랜")
+            lines.extend(setup_lines)
+            lines.append("")
         if snapshot.atr_14 is not None:
             lines.append("## 손절 가이드")
             lines.extend(_atr_stop_lines(candidate.snapshot.close, snapshot.atr_14))
@@ -191,6 +197,22 @@ def _fmt_won(won: int) -> str:
     if abs(won) >= _JO:
         return f"{won / _JO:,.1f}조"
     return f"{won / _EOK:,.0f}억"
+
+
+def _render_setups(close: int, snapshot: IndicatorSnapshot) -> list[str]:
+    """매칭 셋업의 매매플랜(진입/손절/목표/손익비/무효화). 없으면 빈 리스트."""
+    plans = classify_setups(snapshot, close)
+    if not plans:
+        return []
+    lines = ["**🎯 셋업 & 매매플랜**:"]
+    for p in plans[:2]:
+        lines.append(f"- **{p.setup}** (강도 {p.quality:.0%}) — {p.rationale}")
+        lines.append(
+            f"  - 진입 {p.entry:,} / 손절 {p.stop:,} ({p.stop_pct:+.1f}%) "
+            f"/ 1차 {p.target1:,} / 2차 {p.target2:,} | 손익비 {p.reward_risk:.1f}:1"
+        )
+        lines.append(f"  - 무효화: {p.invalidation}")
+    return lines
 
 
 def _atr_stop_lines(close: int, atr: float) -> list[str]:
@@ -250,6 +272,10 @@ def _render_card(
         parts.append("**지표 해석**:")
         for line in explain_indicators(snapshot):
             parts.append(f"- {line}")
+        setup_lines = _render_setups(candidate.snapshot.close, snapshot)
+        if setup_lines:
+            parts.append("")
+            parts.extend(setup_lines)
         if snapshot.atr_14 is not None:
             parts.append("")
             parts.extend(_atr_stop_lines(candidate.snapshot.close, snapshot.atr_14))

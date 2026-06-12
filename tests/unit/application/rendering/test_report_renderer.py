@@ -174,6 +174,57 @@ class TestRenderReport:
         assert "KOSDAQ" in md and "약세" in md
         assert "5,600억" in md  # 억 단위 포맷
 
+    def test_card_includes_setup_when_matched(self) -> None:
+        ticker = _ticker()
+        # 눌림목 셋업 충족 스냅샷 (close 75,000 기준)
+        stock = StockSnapshot(
+            ticker=ticker,
+            as_of=AS_OF,
+            close=75_000,
+            change_pct=-1.0,
+            volume=10_000_000,
+            trading_value=700_000_000_000,
+            market_cap=400_000_000_000_000,
+        )
+        cand = SelectionCandidate(
+            snapshot=stock,
+            selection_reasons=("top_volume",),
+            rank_by_volume=1,
+            rank_by_change_up=None,
+            rank_by_change_down=None,
+        )
+        ind = IndicatorSnapshot(
+            ticker=ticker,
+            as_of=AS_OF,
+            sma_alignment="bullish",
+            sma_5=75_500.0,
+            sma_20=74_000.0,
+            rsi_14=50.0,
+            change_pct_1d=-1.0,
+            atr_14=1_500.0,
+        )
+        selection = SelectionResult(as_of=AS_OF, total_screened=1, candidates=(cand,))
+        indicators = IndicatorAnalysisResult(
+            as_of=AS_OF,
+            items=(IndicatorAnalysisItem(snapshot=ind, scores=compute_scores(ind)),),
+            errors=(),
+        )
+        recs = derive_horizon_recommendations(compute_scores(ind))
+        md = render_report_md(
+            as_of=AS_OF,
+            selection=selection,
+            indicators=indicators,
+            horizon_recommendations={ticker.code: recs},
+        )
+        assert "셋업 & 매매플랜" in md
+        assert "추세 눌림목" in md
+        assert "손익비" in md
+        assert "무효화" in md
+
+        evidence = render_evidence_md(candidate=cand, snapshot=ind, recommendations=recs)
+        assert "## 셋업 & 매매플랜" in evidence
+        assert "추세 눌림목" in evidence
+
     def test_card_includes_atr_stop_loss(self) -> None:
         ticker = _ticker()
         ind_snap = _indicator_snap(ticker)  # close 78,500 / atr 1,850
