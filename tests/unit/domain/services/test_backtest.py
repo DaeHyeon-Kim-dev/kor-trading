@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 from kor_trading.domain.entities.ohlcv_bar import OhlcvBar
 from kor_trading.domain.services.backtest import (
+    CostModel,
     Trade,
     aggregate,
     run_backtest,
@@ -114,6 +115,31 @@ class TestRunBacktest:
         # warmup=5 → i는 5부터 시작
         trades = run_backtest(bars, _always(), warmup=5, max_hold=3)
         assert trades[0].entry_date == _BASE + timedelta(days=5)
+
+
+class TestCostAndGap:
+    def test_cost_reduces_r(self) -> None:
+        # 목표 도달 승: 비용만큼 R 감소
+        bars = _bars([(100, 101, 99, 100)] * 3 + [(100, 110, 99, 105)] + [(100, 101, 99, 100)] * 2)
+        trades = run_backtest(bars, _fire_at({3}), warmup=2, max_hold=3, cost=CostModel(0.01, 0.01))
+        # fees = 100*0.01 + 108*0.01 = 2.08 → net=(108-100)-2.08=5.92 → r=1.48
+        assert round(trades[0].r_multiple, 2) == 1.48
+
+    def test_gap_down_worse_than_minus_1r(self) -> None:
+        # 시가가 손절가(96) 아래 90으로 갭하락 → 90 체결, R=(90-100)/4=-2.5
+        bars = _bars([(100, 101, 99, 100)] * 3 + [(90, 92, 88, 91)] + [(100, 101, 99, 100)] * 2)
+        trades = run_backtest(bars, _fire_at({3}), warmup=2, max_hold=3)
+        assert trades[0].outcome == "loss"
+        assert trades[0].exit_price == 90
+        assert trades[0].r_multiple == -2.5
+
+    def test_gap_up_better_than_target(self) -> None:
+        # 시가가 목표(108) 위 115로 갭상승 → 115 체결, R=(115-100)/4=3.75
+        bars = _bars([(100, 101, 99, 100)] * 3 + [(115, 118, 114, 116)] + [(100, 101, 99, 100)] * 2)
+        trades = run_backtest(bars, _fire_at({3}), warmup=2, max_hold=3)
+        assert trades[0].outcome == "win"
+        assert trades[0].exit_price == 115
+        assert trades[0].r_multiple == 3.75
 
 
 # ──────────────────────── aggregate ────────────────────────
