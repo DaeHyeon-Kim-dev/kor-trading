@@ -10,6 +10,7 @@ from kor_trading.domain.services.backtest import (
     Trade,
     aggregate,
     run_backtest,
+    score_open_position,
 )
 from kor_trading.domain.values.trade_plan import TradePlan
 
@@ -140,6 +141,41 @@ class TestCostAndGap:
         assert trades[0].outcome == "win"
         assert trades[0].exit_price == 115
         assert trades[0].r_multiple == 3.75
+
+
+class TestScoreOpenPosition:
+    def test_open_when_no_bars(self) -> None:
+        out = score_open_position(_PLAN, [], max_hold=20)
+        assert out.status == "open"
+        assert out.r_multiple is None
+        assert out.held_days is None
+
+    def test_open_when_not_yet_resolved(self) -> None:
+        # 손절·목표 미도달 + 보유봉 < max_hold → open
+        future = _bars([(100, 102, 99, 101)] * 3)
+        out = score_open_position(_PLAN, future, max_hold=20)
+        assert out.status == "open"
+
+    def test_win(self) -> None:
+        future = _bars([(100, 101, 99, 100), (100, 110, 99, 105)])
+        out = score_open_position(_PLAN, future, max_hold=20)
+        assert out.status == "win"
+        assert out.r_multiple == 2.0
+        assert out.held_days == 2
+
+    def test_loss(self) -> None:
+        future = _bars([(100, 101, 95, 97)])
+        out = score_open_position(_PLAN, future, max_hold=20)
+        assert out.status == "loss"
+        assert out.r_multiple == -1.0
+        assert out.held_days == 1
+
+    def test_timeout_when_max_hold_reached(self) -> None:
+        future = _bars([(100, 102, 99, 101)] * 3)
+        out = score_open_position(_PLAN, future, max_hold=3)
+        assert out.status == "timeout"
+        assert out.r_multiple == 0.25  # (101-100)/4
+        assert out.held_days == 3
 
 
 # ──────────────────────── aggregate ────────────────────────

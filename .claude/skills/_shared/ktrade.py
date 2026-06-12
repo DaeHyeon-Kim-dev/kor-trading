@@ -392,6 +392,140 @@ def analyze_md(query: str, as_of: dt.date) -> str:
     return "\n".join(out)
 
 
+# ──────────────────────── 페이퍼 트레이딩 로깅 ────────────────────────
+def _paper_path():  # type: ignore[no-untyped-def]
+    import pathlib  # noqa: PLC0415
+
+    return pathlib.Path("data") / "paper" / "trades.jsonl"
+
+
+def _read_paper():  # type: ignore[no-untyped-def]
+    import json  # noqa: PLC0415
+
+    path = _paper_path()
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _append_paper(entry) -> None:  # type: ignore[no-untyped-def]
+    import json  # noqa: PLC0415
+
+    path = _paper_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def paper_log_md(codes: list[str], as_of: dt.date) -> str:
+    if not codes:
+        return "사용법: `k-paper log <종목명|코드> [...]` — 현재 셋업을 페이퍼로 기록"
+    existing = _read_paper()
+    open_keys = {(e["code"], e["data_date"], e["setup"]) for e in existing if e["status"] == "open"}
+    lines = []
+    for c in codes:
+        snap = resolve(c, as_of)
+        if snap is None:
+            lines.append(f"❌ '{c}' 종목 못 찾음")
+            continue
+        analysis = _indicator_analysis(snap)
+        if analysis is None:
+            lines.append(f"❌ {snap.ticker.name} 분석 실패")
+            continue
+        isnap, _ = analysis
+        plans = classify_setups(isnap, snap.close)
+        if not plans:
+            lines.append(f"⚪ {snap.ticker.name}({snap.ticker.code}) — 셋업 없음, 미기록")
+            continue
+        p = plans[0]
+        if (snap.ticker.code, snap.as_of.isoformat(), p.setup) in open_keys:
+            lines.append(f"🔁 {snap.ticker.name} — 이미 기록된 미청산 셋업")
+            continue
+        _append_paper(
+            {
+                "logged_at": today().isoformat(),
+                "data_date": snap.as_of.isoformat(),
+                "code": snap.ticker.code,
+                "name": snap.ticker.name,
+                "setup": p.setup,
+                "quality": p.quality,
+                "entry": p.entry,
+                "stop": p.stop,
+                "target1": p.target1,
+                "target2": p.target2,
+                "risk_per_share": p.risk_per_share,
+                "reward_risk": p.reward_risk,
+                "stop_pct": p.stop_pct,
+                "status": "open",
+            }
+        )
+        lines.append(
+            f"📝 {snap.ticker.name}({snap.ticker.code}) {p.setup} 기록 — "
+            f"진입 {p.entry:,}/손절 {p.stop:,}/목표 {p.target1:,}"
+        )
+    return "## 📝 페이퍼 기록\n" + "\n".join(f"- {x}" for x in lines)
+
+
+def paper_status_md(as_of: dt.date) -> str:
+    from datetime import date as _date  # noqa: PLC0415
+    from datetime import timedelta  # noqa: PLC0415
+
+    from kor_trading.domain.services.backtest import (  # noqa: PLC0415
+        CostModel,
+        score_open_position,
+    )
+    from kor_trading.domain.values.trade_plan import TradePlan  # noqa: PLC0415
+
+    entries = _read_paper()
+    if not entries:
+        return "기록된 페이퍼 트레이드가 없습니다. `/k-paper log <종목>`으로 기록하세요."
+
+    max_hold = 20
+    ohlcv = FdrOhlcvProvider()
+    closed, open_rows = [], []
+    for e in entries:
+        plan = TradePlan(
+            setup=e["setup"], quality=e["quality"], entry=e["entry"], stop=e["stop"],
+            target1=e["target1"], target2=e["target2"], risk_per_share=e["risk_per_share"],
+            reward_risk=e["reward_risk"], stop_pct=e["stop_pct"], rationale="", invalidation="",
+        )
+        d = _date.fromisoformat(e["data_date"])
+        # 신호일 '직후' 구간을 가져온다(최근 봉이 아니라). 보유기간 커버할 캘린더 버퍼.
+        end = min(as_of, d + timedelta(days=max_hold * 2 + 14))
+        bars = ohlcv.get_daily_bars(e["code"], end, max_hold * 2 + 20)
+        future = [b for b in bars if b.date > d]
+        out = score_open_position(plan, future, max_hold=max_hold, cost=CostModel())
+        cur = future[-1].close if future else e["entry"]
+        if out.status == "open":
+            open_rows.append((e, cur))
+        else:
+            closed.append((e, out))
+
+    md = [f"## 📒 페이퍼 트레이딩 현황 — {as_of.isoformat()}", f"미청산 {len(open_rows)} · 청산 {len(closed)}", ""]
+    if closed:
+        rs = [o.r_multiple for _, o in closed if o.r_multiple is not None]
+        wins = sum(1 for r in rs if r > 0)
+        md += ["### ✅ 청산 (forward 검증)", "| 종목 | 셋업 | 기록일 | 결과 | R |", "|---|---|---|---|---|"]
+        mark = {"win": "🟢 목표", "loss": "🔴 손절", "timeout": "🟡 만기"}
+        for e, o in closed:
+            md.append(
+                f"| {e['name']}({e['code']}) | {e['setup']} | {e['data_date']} "
+                f"| {mark.get(o.status, o.status)} | {o.r_multiple:+.2f} |"
+            )
+        avg = sum(rs) / len(rs) if rs else 0.0
+        md.append(f"\n**종합**: 승률 {wins / len(rs) * 100:.0f}% · 평균 {avg:+.2f}R ({len(rs)}건)")
+        md.append("")
+    if open_rows:
+        md += ["### ⏳ 미청산", "| 종목 | 셋업 | 기록일 | 진입 | 현재 | 손절 | 목표 |", "|---|---|---|---|---|---|---|"]
+        for e, cur in open_rows:
+            pnl = (cur - e["entry"]) / e["entry"] * 100
+            md.append(
+                f"| {e['name']}({e['code']}) | {e['setup']} | {e['data_date']} "
+                f"| {e['entry']:,} | {cur:,}({pnl:+.1f}%) | {e['stop']:,} | {e['target1']:,} |"
+            )
+    return "\n".join(md)
+
+
 # ──────────────────────── 보유 포지션 관리 ────────────────────────
 def manage_md(query: str, avg_cost: int, as_of: dt.date) -> str:
     if avg_cost <= 0:
