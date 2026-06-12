@@ -219,11 +219,11 @@ class TestBounce:
         plans = classify_setups(snap, close=100)
         assert all(p.setup != "과매도 반등" for p in plans)
 
-    def test_wide_stop_excluded(self) -> None:
-        # close 10,000, atr 1,000 → bounce risk=1,500(15%) > 12% 한도 → 제외
-        snap = self._match(atr_14=1_000.0)
+    def test_wide_stop_still_reported(self) -> None:
+        # 고변동성(손절폭 넓음)이어도 셋업은 보고 — 리스크는 사이징으로 흡수
+        snap = self._match(atr_14=1_000.0)  # risk=1,500(15%)
         plans = classify_setups(snap, close=10_000)
-        assert all(p.setup != "과매도 반등" for p in plans)
+        assert any(p.setup == "과매도 반등" for p in plans)
 
 
 # ──────────────────────── 다중 매칭 정렬 ────────────────────────

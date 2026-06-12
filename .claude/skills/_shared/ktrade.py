@@ -210,16 +210,25 @@ def screen_md(as_of: dt.date, top_n: int = 8) -> str:
         "| 종목 | 셋업 | 강도 | 과거기대값 | 진입 | 손절(%) | 1차목표 | 손익비 |",
         "|------|------|------|-----------|------|---------|---------|--------|",
     ]
+    wide_any = False
     for c, p in rows[:top_n]:
         exp = _SETUP_EXPECTANCY.get(p.setup)
         exp_s = f"+{exp}R" if exp is not None else "미검증"
+        wide = p.stop_pct < -12.0  # 고변동성 → 비중 축소 경고
+        wide_any = wide_any or wide
+        name = f"{'⚠️ ' if wide else ''}{c.snapshot.ticker.name}({c.snapshot.ticker.code})"
         out.append(
-            f"| {c.snapshot.ticker.name}({c.snapshot.ticker.code}) | {p.setup} | {p.quality:.0%} "
+            f"| {name} | {p.setup} | {p.quality:.0%} "
             f"| {exp_s} | {p.entry:,} | {p.stop:,}({p.stop_pct:+.1f}%) | {p.target1:,} "
             f"| {p.reward_risk:.1f} |"
         )
     if len(rows) > top_n:
         out.append(f"\n_…외 {len(rows) - top_n}종목. 개별 상세는 /k-analyze <종목>._")
+    if wide_any:
+        out.append(
+            "\n_⚠️ = 손절폭 >12%(고변동성). 손절을 좁히지 말고 **비중을 줄여** 대응 "
+            "(계좌리스크 1% ÷ 넓은 손절폭 = 작은 수량)._"
+        )
     out += [
         "",
         "_과거기대값 = 실데이터 2024~2025 백테스트(거래비용·갭 반영). 수급 미반영(개별은 /k-analyze)._",
