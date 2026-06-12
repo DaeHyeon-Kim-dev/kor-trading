@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
 import sys
 
 import structlog
@@ -62,6 +63,8 @@ from kor_trading.domain.services.risk_levels import (  # noqa: E402
     TIGHT_MULTIPLIER,
     atr_stop_loss,
 )
+from kor_trading.domain.services.setup_classifier import classify_setups  # noqa: E402
+from kor_trading.domain.values.trade_plan import suggested_shares  # noqa: E402
 from kor_trading.infrastructure.config import Secrets  # noqa: E402
 
 _MARKETS = ("KOSPI", "KOSDAQ")
@@ -188,6 +191,48 @@ def _mover_table(cands) -> list[str]:  # type: ignore[no-untyped-def]
     return lines
 
 
+# ──────────────────────── 셋업 & 매매플랜 ────────────────────────
+def _account() -> tuple[int, float] | None:
+    """계좌 규모/리스크%를 env에서 읽어 포지션 사이징에 사용(옵션)."""
+    raw = os.environ.get("KOR_TRADING_ACCOUNT_KRW")
+    if not raw:
+        return None
+    try:
+        acct = int(raw)
+    except ValueError:
+        return None
+    try:
+        risk = float(os.environ.get("KOR_TRADING_RISK_PCT", "1.0"))
+    except ValueError:
+        risk = 1.0
+    return acct, risk
+
+
+def _setup_section(isnap, close: int) -> list[str]:  # type: ignore[no-untyped-def]
+    plans = classify_setups(isnap, close)
+    if not plans:
+        return [
+            "### 🎯 셋업",
+            "- **매칭 셋업 없음** — 지금은 뚜렷한 진입 셋업이 아니다(관망 권장).",
+        ]
+    acct = _account()
+    lines = ["### 🎯 셋업 & 매매플랜"]
+    for p in plans[:2]:  # 상위 2개 셋업
+        lines.append(f"- **{p.setup}** (강도 {p.quality:.0%}) — {p.rationale}")
+        lines.append(
+            f"  - 진입 {p.entry:,} / 손절 {p.stop:,} ({p.stop_pct:+.1f}%) "
+            f"/ 1차 {p.target1:,} / 2차 {p.target2:,} | 손익비 {p.reward_risk:.1f}:1"
+        )
+        if acct is not None:
+            shares = suggested_shares(acct[0], acct[1], p.risk_per_share)
+            lines.append(
+                f"  - 비중: 계좌 {acct[0]:,}원·리스크 {acct[1]:.1f}% → 약 {shares:,}주 "
+                f"(1주 리스크 {p.risk_per_share:,}원)"
+            )
+        lines.append(f"  - 무효화: {p.invalidation}")
+    return lines
+
+
 # ──────────────────────── 단일 종목 분석 ────────────────────────
 def analyze_md(query: str, as_of: dt.date) -> str:
     snap = resolve(query, as_of)
@@ -224,7 +269,11 @@ def analyze_md(query: str, as_of: dt.date) -> str:
         "",
         f"**종합 시그널**: {summarize_signal(isnap)}",
         "",
-        "### 매매관점 4종",
+    ]
+    out += _setup_section(isnap, snap.close)
+    out += [
+        "",
+        "### 매매관점 4종(참고)",
         "| 관점 | 추천 | 점수 | 근거 |",
         "|------|------|------|------|",
     ]
