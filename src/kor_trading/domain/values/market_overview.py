@@ -49,6 +49,19 @@ class MarketOverview:
     breadths: tuple[MarketBreadth, ...]
 
 
+def overall_regime(overview: MarketOverview) -> str:
+    """전 시장 합산 폭으로 본 레짐(강세/약세/혼조). 빈 경우 혼조."""
+    up = sum(b.advancers for b in overview.breadths)
+    down = sum(b.decliners for b in overview.breadths)
+    if up == 0 and down == 0:
+        return "혼조"
+    if up >= down * _DOMINANCE_RATIO:
+        return "강세"
+    if down >= up * _DOMINANCE_RATIO:
+        return "약세"
+    return "혼조"
+
+
 def summarize_market(snapshots: Sequence[StockSnapshot]) -> MarketOverview:
     """전체 universe 스냅샷에서 시장별 폭을 계산.
 

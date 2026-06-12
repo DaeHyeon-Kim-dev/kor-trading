@@ -65,6 +65,7 @@ from kor_trading.domain.services.risk_levels import (  # noqa: E402
 )
 from kor_trading.domain.services.position_advisor import manage_position  # noqa: E402
 from kor_trading.domain.services.setup_classifier import classify_setups  # noqa: E402
+from kor_trading.domain.values.market_overview import overall_regime  # noqa: E402
 from kor_trading.domain.values.trade_plan import suggested_shares  # noqa: E402
 from kor_trading.infrastructure.config import Secrets  # noqa: E402
 
@@ -153,6 +154,77 @@ def market_md(as_of: dt.date) -> str:
             f"거래대금 {_fmt_won(b.total_trading_value)}"
         )
     return "\n".join(lines)
+
+
+# ──────────────────────── 추천 스크리너 ────────────────────────
+# PR2 백테스트(20종목/14개월, 상승장) 측정 기대값. 없으면 미검증.
+_SETUP_EXPECTANCY = {"돌파": 0.84, "추세 눌림목": 0.44}
+
+
+def screen_md(as_of: dt.date, top_n: int = 8) -> str:
+    sel = SelectStocksUseCase(market_snapshots=_market_provider()).execute(
+        SelectionCriteria(top_volume_n=60, surge_top_n=25, plunge_top_n=15), as_of
+    )
+    if not sel.candidates:
+        return "❌ 후보 종목을 가져오지 못했습니다."
+    regime = overall_regime(sel.overview) if sel.overview is not None else "혼조"
+    data_date = sel.candidates[0].snapshot.as_of
+
+    # 수급은 속도·KIS 호출량 고려해 미반영(가격 기반 셋업 위주). 개별은 /k-analyze.
+    analyze_uc = AnalyzeIndicatorsUseCase(ohlcv_provider=FdrOhlcvProvider(), flow_provider=None)
+    tickers = [
+        Ticker(code=c.snapshot.ticker.code, name=c.snapshot.ticker.name, market=c.snapshot.ticker.market)
+        for c in sel.candidates
+    ]
+    res = analyze_uc.execute(tickers, data_date)
+    by_code = {it.snapshot.ticker.code: it.snapshot for it in res.items}
+
+    rows = []
+    for c in sel.candidates:
+        isnap = by_code.get(c.snapshot.ticker.code)
+        if isnap is None:
+            continue
+        plans = classify_setups(isnap, c.snapshot.close)
+        if plans:
+            rows.append((c, plans[0]))
+    rows.sort(
+        key=lambda r: (
+            _SETUP_EXPECTANCY.get(r[1].setup) is not None,
+            _SETUP_EXPECTANCY.get(r[1].setup, 0.0),
+            r[1].quality,
+        ),
+        reverse=True,
+    )
+
+    warn = " ⚠️ 약세장 — 롱 신호는 비중 축소·엄격 손절" if regime == "약세" else ""
+    out = [
+        f"## 🛒 지금 매수할 만한 종목 — {data_date.isoformat()}",
+        f"- 시장 레짐: **{regime}**{warn}",
+        f"- 스캔 {len(sel.candidates)}종목 중 셋업 매칭 {len(rows)}종목",
+        "",
+    ]
+    if not rows:
+        out.append("**현재 매수 셋업이 잡힌 종목 없음 — 관망 권장.**")
+        return "\n".join(out)
+    out += [
+        "| 종목 | 셋업 | 강도 | 과거기대값 | 진입 | 손절(%) | 1차목표 | 손익비 |",
+        "|------|------|------|-----------|------|---------|---------|--------|",
+    ]
+    for c, p in rows[:top_n]:
+        exp = _SETUP_EXPECTANCY.get(p.setup)
+        exp_s = f"+{exp}R" if exp is not None else "미검증"
+        out.append(
+            f"| {c.snapshot.ticker.name}({c.snapshot.ticker.code}) | {p.setup} | {p.quality:.0%} "
+            f"| {exp_s} | {p.entry:,} | {p.stop:,}({p.stop_pct:+.1f}%) | {p.target1:,} "
+            f"| {p.reward_risk:.1f} |"
+        )
+    if len(rows) > top_n:
+        out.append(f"\n_…외 {len(rows) - top_n}종목. 개별 상세는 /k-analyze <종목>._")
+    out += [
+        "",
+        "_과거기대값 = 20종목/14개월 백테스트(상승장·거래비용 미반영). 수급 미반영(개별은 /k-analyze)._",
+    ]
+    return "\n".join(out)
 
 
 # ──────────────────────── 무버스(급등·급락·거래량) ────────────────────────

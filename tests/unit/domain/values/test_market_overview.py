@@ -8,6 +8,8 @@ from kor_trading.domain.entities.stock_snapshot import StockSnapshot
 from kor_trading.domain.entities.ticker import Market, Ticker
 from kor_trading.domain.values.market_overview import (
     MarketBreadth,
+    MarketOverview,
+    overall_regime,
     summarize_market,
 )
 
@@ -80,3 +82,26 @@ class TestSentiment:
 
     def test_mixed_when_balanced(self) -> None:
         assert self._breadth(up=11, down=10).sentiment == "혼조"
+
+
+class TestOverallRegime:
+    def _ov(self, b: list[MarketBreadth]) -> MarketOverview:
+        return MarketOverview(breadths=tuple(b))
+
+    def _b(self, up: int, down: int) -> MarketBreadth:
+        return MarketBreadth("KOSPI", up + down, up, down, 0, 0.0, 0)
+
+    def test_empty_is_mixed(self) -> None:
+        assert overall_regime(self._ov([])) == "혼조"
+
+    def test_bullish_aggregate(self) -> None:
+        ov = self._ov([self._b(300, 100), self._b(200, 50)])
+        assert overall_regime(ov) == "강세"
+
+    def test_bearish_aggregate(self) -> None:
+        ov = self._ov([self._b(50, 200), self._b(40, 150)])
+        assert overall_regime(ov) == "약세"
+
+    def test_mixed_aggregate(self) -> None:
+        ov = self._ov([self._b(100, 90)])
+        assert overall_regime(ov) == "혼조"
