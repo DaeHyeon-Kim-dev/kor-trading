@@ -58,6 +58,7 @@ def build_container(config: AppConfig, secrets: Secrets, data_base_path: Path) -
         app_key=secrets.kis_app_key,
         app_secret=secrets.kis_app_secret,
         virtual=secrets.kis_env == "virtual",
+        token_cache_path=data_base_path / "cache" / "kis_token.json",
     )
     flow_provider = KisInvestorFlowProvider(client=kis_client) if kis_client.enabled else None
     corp_code_resolver = DartCorpCodeResolver(
