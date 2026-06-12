@@ -12,17 +12,24 @@ color: green
 
 | 스킬 | 언제 | 인자 |
 |------|------|------|
-| `/k-market` | 장 전체 분위기 ("오늘 장 어때") | 없음 |
+| `/k-analyze` | 단일 종목 분석 + **현재가 매수 판정**("삼성전자 사도 돼?") | 종목명/코드 |
+| `/k-manage` | **보유 종목 매매 타이밍**("평단 X인데 어떻게") | 종목 + 평단가 |
 | `/k-movers` | 급등·급락·거래량 상위 ("뭐가 급등했어") | 없음 |
-| `/k-analyze` | 단일 종목 풀 분석 ("삼성전자 분석", "사도 돼?") | 종목명/코드 |
+| `/k-market` | 장 전체 분위기 ("오늘 장 어때") | 없음 |
 | `/k-flow` | 외국인·기관 수급 ("외국인 사?") | 종목명/코드 |
 | `/k-disclosures` | 최근 공시 호재/악재 ("무슨 일 있었어") | 종목명/코드 |
+| `/k-backtest` | 셋업 과거 기대값 검증 | [종목들] |
 
 스킬을 Skill 도구로 호출하거나, 동일한 스크립트를 직접 Bash로 실행해도 된다. 직접 실행 시 프로젝트 루트에서:
 ```bash
 cd /Users/daehyeon_kim/dev/kor_trading && export PATH="$HOME/.local/bin:$PATH" && uv run python .claude/skills/<스킬>/scripts/run.py [인자]
 ```
-(`<스킬>` = k-market / k-movers / k-analyze / k-flow / k-disclosures)
+(`<스킬>` = k-analyze / k-manage / k-movers / k-market / k-flow / k-disclosures / k-backtest)
+
+## 핵심 사용 패턴 3가지 (이 질문들에 잘 답하는 게 목표)
+1. **"지금 매수하기 좋은 종목 추천"** → `k-movers`로 후보를 좁히고, 각 후보를 `k-analyze`로 돌려 **매수 적정(셋업 매칭)** 인 것만 근거와 함께 추천.
+2. **"xxx 이 가격에 매수 어때?"** → `k-analyze`. 출력 상단의 **매수 판정**(적정/부적정)을 결론으로 전달하고 셋업 플랜(진입·손절·목표)을 덧붙인다.
+3. **"xxx 보유중 평단 X, 타이밍?"** → `k-manage <종목> <평단>`. 판단(보유/추가/익절/손절)+손절선을 전달.
 
 ## 라우팅 원칙
 - **"이 종목 사도 돼?" / "분석해줘"** → `k-analyze`를 기본으로, 필요하면 `k-flow`·`k-disclosures`를 추가로 호출해 종합 판단한다.

@@ -63,6 +63,7 @@ from kor_trading.domain.services.risk_levels import (  # noqa: E402
     TIGHT_MULTIPLIER,
     atr_stop_loss,
 )
+from kor_trading.domain.services.position_advisor import manage_position  # noqa: E402
 from kor_trading.domain.services.setup_classifier import classify_setups  # noqa: E402
 from kor_trading.domain.values.trade_plan import suggested_shares  # noqa: E402
 from kor_trading.infrastructure.config import Secrets  # noqa: E402
@@ -208,8 +209,7 @@ def _account() -> tuple[int, float] | None:
     return acct, risk
 
 
-def _setup_section(isnap, close: int) -> list[str]:  # type: ignore[no-untyped-def]
-    plans = classify_setups(isnap, close)
+def _setup_section(plans) -> list[str]:  # type: ignore[no-untyped-def]
     if not plans:
         return [
             "### 🎯 셋업",
@@ -234,11 +234,8 @@ def _setup_section(isnap, close: int) -> list[str]:  # type: ignore[no-untyped-d
 
 
 # ──────────────────────── 단일 종목 분석 ────────────────────────
-def analyze_md(query: str, as_of: dt.date) -> str:
-    snap = resolve(query, as_of)
-    if snap is None:
-        return f"❌ '{query}' 종목을 찾지 못했습니다. 종목명 또는 6자리 코드를 확인하세요."
-
+def _indicator_analysis(snap):  # type: ignore[no-untyped-def]
+    """종목 스냅샷 → (IndicatorSnapshot, IndicatorScores) | None. 분석·관리 공용."""
     s = _secrets()
     kis = KisClient(
         app_key=s.kis_app_key,
@@ -251,26 +248,40 @@ def analyze_md(query: str, as_of: dt.date) -> str:
         ohlcv_provider=FdrOhlcvProvider(), flow_provider=flow_provider
     )
     ticker = Ticker(code=snap.ticker.code, name=snap.ticker.name, market=snap.ticker.market)
-    data_date = snap.as_of  # KRX가 보정한 실제 거래일(휴장/주말 자동 처리)
-    res = analyze_uc.execute([ticker], data_date)
+    res = analyze_uc.execute([ticker], snap.as_of)  # snap.as_of = 실제 거래일
     if not res.items:
-        reason = res.errors[0].reason if res.errors else "데이터 부족"
-        return f"❌ {ticker.name}({ticker.code}) 분석 실패: {reason}"
+        return None
+    return res.items[0].snapshot, res.items[0].scores
 
-    item = res.items[0]
-    isnap, scores = item.snapshot, item.scores
+
+def analyze_md(query: str, as_of: dt.date) -> str:
+    snap = resolve(query, as_of)
+    if snap is None:
+        return f"❌ '{query}' 종목을 찾지 못했습니다. 종목명 또는 6자리 코드를 확인하세요."
+
+    analysis = _indicator_analysis(snap)
+    if analysis is None:
+        return f"❌ {snap.ticker.name}({snap.ticker.code}) 분석 실패: 데이터 부족"
+    isnap, scores = analysis
     recs = derive_horizon_recommendations(scores)
+    plans = classify_setups(isnap, snap.close)
+    verdict = (
+        f"🟢 매수 적정 — {plans[0].setup} 셋업"
+        if plans
+        else "⚪ 매수 부적정 — 매칭 셋업 없음(관망 권장)"
+    )
 
     out = [
-        f"## 🔎 {ticker.name} ({ticker.code}) — {ticker.market}",
+        f"## 🔎 {snap.ticker.name} ({snap.ticker.code}) — {snap.ticker.market}",
         f"- 현재가 {snap.close:,}원 | 등락률 {snap.change_pct:+.2f}% "
         f"| 거래대금 {_fmt_won(snap.trading_value)} | 시총 {_fmt_won(snap.market_cap)}",
-        f"- 기준일: {data_date.isoformat()}",
+        f"- 기준일: {snap.as_of.isoformat()}",
         "",
+        f"**💡 현재가 매수 판정: {verdict}**",
         f"**종합 시그널**: {summarize_signal(isnap)}",
         "",
     ]
-    out += _setup_section(isnap, snap.close)
+    out += _setup_section(plans)
     out += [
         "",
         "### 매매관점 4종(참고)",
@@ -298,6 +309,42 @@ def analyze_md(query: str, as_of: dt.date) -> str:
         out.append(f"- 타이트(1.5x ATR): {tight.price:,}원 ({tight.pct:+.1f}%)")
         out.append(f"- 표준(2.0x ATR): {std.price:,}원 ({std.pct:+.1f}%)")
     return "\n".join(out)
+
+
+# ──────────────────────── 보유 포지션 관리 ────────────────────────
+def manage_md(query: str, avg_cost: int, as_of: dt.date) -> str:
+    if avg_cost <= 0:
+        return "❌ 평단가는 0보다 큰 정수여야 합니다. 예) 005930 71000"
+    snap = resolve(query, as_of)
+    if snap is None:
+        return f"❌ '{query}' 종목을 찾지 못했습니다."
+    analysis = _indicator_analysis(snap)
+    if analysis is None:
+        return f"❌ {snap.ticker.name}({snap.ticker.code}) 분석 실패: 데이터 부족"
+    isnap, _scores = analysis
+    adv = manage_position(isnap, snap.close, avg_cost)
+
+    pnl_mark = "🔵" if adv.pnl_pct >= 0 else "🔴"
+    action_mark = {
+        "추가매수 검토": "🟢",
+        "보유": "🟡",
+        "일부 익절": "🟠",
+        "전량 익절": "🟠",
+        "손절": "🔴",
+    }.get(adv.action, "")
+    return "\n".join(
+        [
+            f"## 📌 {snap.ticker.name} ({snap.ticker.code}) 보유 관리 — {snap.as_of.isoformat()}",
+            f"- 평단 {avg_cost:,}원 → 현재가 {snap.close:,}원 "
+            f"| 평가손익 {pnl_mark} {adv.pnl_pct:+.1f}%",
+            "",
+            f"**{action_mark} 판단: {adv.action}**",
+            f"- 근거: {adv.reason}",
+            f"- {adv.note}",
+            "",
+            f"_지표: {summarize_signal(isnap)}_",
+        ]
+    )
 
 
 # ──────────────────────── 백테스트 ────────────────────────
