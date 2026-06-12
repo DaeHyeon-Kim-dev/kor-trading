@@ -219,6 +219,12 @@ class TestBounce:
         plans = classify_setups(snap, close=100)
         assert all(p.setup != "과매도 반등" for p in plans)
 
+    def test_wide_stop_excluded(self) -> None:
+        # close 10,000, atr 1,000 → bounce risk=1,500(15%) > 12% 한도 → 제외
+        snap = self._match(atr_14=1_000.0)
+        plans = classify_setups(snap, close=10_000)
+        assert all(p.setup != "과매도 반등" for p in plans)
+
 
 # ──────────────────────── 다중 매칭 정렬 ────────────────────────
 def test_multiple_setups_sorted_by_quality() -> None:

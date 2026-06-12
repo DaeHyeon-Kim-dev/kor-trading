@@ -33,6 +33,8 @@ _RSI_OVERSOLD = 32.0
 _VOLUME_BREAKOUT = 2.0
 _BREAKOUT_CHG_LO, _BREAKOUT_CHG_HI = 3.0, 15.0  # 강하되 과열(추격) 아님
 _NOT_CRASH_CHG = -3.5
+# ATR 손절폭이 현재가의 이 비율(%)을 넘으면 스윙 셋업으로 부적합(과변동성) → 제외
+_MAX_STOP_PCT = 12.0
 
 _Detection = tuple[float, str, str]  # (quality, rationale, invalidation)
 
@@ -60,6 +62,8 @@ def _build_plan(
     quality, rationale, invalidation = det
     risk = max(1, round(stop_mult * atr))
     if risk >= close:  # 손절가가 0 이하가 되는 비정상(초저가) 종목은 제외
+        return None
+    if risk / close * 100 > _MAX_STOP_PCT:  # 손절폭이 과도하게 넓음(고변동성) → 부적합
         return None
     stop = close - risk
     return TradePlan(
