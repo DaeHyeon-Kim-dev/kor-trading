@@ -40,6 +40,7 @@ from kor_trading.adapters.outbound.kis_client import KisClient  # noqa: E402
 from kor_trading.adapters.outbound.kis_investor_flow import (  # noqa: E402
     KisInvestorFlowProvider,
 )
+from kor_trading.adapters.outbound.kis_volume_rank import KisVolumeRankProvider  # noqa: E402
 from kor_trading.adapters.outbound.krx_openapi_client import KrxOpenApiClient  # noqa: E402
 from kor_trading.adapters.outbound.krx_openapi_market_snapshot import (  # noqa: E402
     KrxOpenApiMarketSnapshotProvider,
@@ -258,6 +259,44 @@ def movers_md(as_of: dt.date) -> str:
     out.append("### 급락 상위")
     out += _mover_table(rows(lambda c: c.rank_by_change_down, reverse=False))
     return "\n".join(out)
+
+
+def _kis() -> KisClient:
+    s = _secrets()
+    return KisClient(
+        app_key=s.kis_app_key,
+        app_secret=s.kis_app_secret,
+        virtual=s.kis_env == "virtual",
+        token_cache_path=_cache_path() / "kis_token.json",
+    )
+
+
+def value_rank_md(as_of: dt.date, top_n: int = 20) -> str:
+    """장중 실시간 거래대금 상위(KIS 거래량순위 API, 거래금액순).
+
+    KRX 일별매매정보(EOD)와 달리 '지금 이 순간' 순위. 장 마감/휴장 시엔 직전 값.
+    """
+    kis = _kis()
+    if not kis.enabled:
+        return "❌ KIS 앱키가 설정되지 않아 실시간 순위를 조회할 수 없습니다(.env 확인)."
+    snaps = KisVolumeRankProvider(client=kis).top_by_trading_value(_MARKETS, as_of, limit=top_n)
+    if not snaps:
+        return "❌ 실시간 거래대금 순위를 가져오지 못했습니다(장 운영시간이 아닐 수 있음)."
+    lines = [
+        f"## 🔥 장중 실시간 거래대금 상위 {len(snaps)} — {as_of.isoformat()} (KIS)",
+        "",
+        "| 순위 | 종목 | 코드 | 현재가 | 등락률 | 거래대금 | 거래량 | 시장 |",
+        "|---:|------|------|---:|---:|---:|---:|:--|",
+    ]
+    for i, s in enumerate(snaps, 1):
+        lines.append(
+            f"| {i} | {s.ticker.name} | {s.ticker.code} | {s.close:,} "
+            f"| {s.change_pct:+.2f}% | {_fmt_won(s.trading_value)} | {s.volume:,} "
+            f"| {s.ticker.market} |"
+        )
+    lines.append("")
+    lines.append("_KIS 거래량순위 API(거래금액순) 실시간 스냅샷. 시장별 상위 30 병합·재정렬._")
+    return "\n".join(lines)
 
 
 def _mover_table(cands) -> list[str]:  # type: ignore[no-untyped-def]
