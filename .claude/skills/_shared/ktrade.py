@@ -162,15 +162,15 @@ def market_md(as_of: dt.date) -> str:
 _SETUP_EXPECTANCY = {"돌파": 0.53, "추세 눌림목": 0.26, "과매도 반등": 0.17}
 
 
-def screen_md(as_of: dt.date, top_n: int = 8) -> str:
+def _screen(as_of: dt.date):  # type: ignore[no-untyped-def]
+    """스크리너 코어: (regime, data_date, scanned, rows[(candidate, plan)]) | None."""
     sel = SelectStocksUseCase(market_snapshots=_market_provider()).execute(
         SelectionCriteria(top_volume_n=60, surge_top_n=25, plunge_top_n=15), as_of
     )
     if not sel.candidates:
-        return "❌ 후보 종목을 가져오지 못했습니다."
+        return None
     regime = overall_regime(sel.overview) if sel.overview is not None else "혼조"
     data_date = sel.candidates[0].snapshot.as_of
-
     # 수급은 속도·KIS 호출량 고려해 미반영(가격 기반 셋업 위주). 개별은 /k-analyze.
     analyze_uc = AnalyzeIndicatorsUseCase(ohlcv_provider=FdrOhlcvProvider(), flow_provider=None)
     tickers = [
@@ -179,7 +179,6 @@ def screen_md(as_of: dt.date, top_n: int = 8) -> str:
     ]
     res = analyze_uc.execute(tickers, data_date)
     by_code = {it.snapshot.ticker.code: it.snapshot for it in res.items}
-
     rows = []
     for c in sel.candidates:
         isnap = by_code.get(c.snapshot.ticker.code)
@@ -196,12 +195,20 @@ def screen_md(as_of: dt.date, top_n: int = 8) -> str:
         ),
         reverse=True,
     )
+    return {"regime": regime, "data_date": data_date, "scanned": len(sel.candidates), "rows": rows}
+
+
+def screen_md(as_of: dt.date, top_n: int = 8) -> str:
+    s = _screen(as_of)
+    if s is None:
+        return "❌ 후보 종목을 가져오지 못했습니다."
+    regime, data_date, rows = s["regime"], s["data_date"], s["rows"]
 
     warn = " ⚠️ 약세장 — 롱 신호는 비중 축소·엄격 손절" if regime == "약세" else ""
     out = [
         f"## 🛒 지금 매수할 만한 종목 — {data_date.isoformat()}",
         f"- 시장 레짐: **{regime}**{warn}",
-        f"- 스캔 {len(sel.candidates)}종목 중 셋업 매칭 {len(rows)}종목",
+        f"- 스캔 {s['scanned']}종목 중 셋업 매칭 {len(rows)}종목",
         "",
     ]
     if not rows:
@@ -235,6 +242,137 @@ def screen_md(as_of: dt.date, top_n: int = 8) -> str:
         "_과거기대값 = 실데이터 2024~2025 백테스트(거래비용·갭 반영). 수급 미반영(개별은 /k-analyze)._",
     ]
     return "\n".join(out)
+
+
+# ──────────────────────── 데일리 저널 (기록 → 다음날 검증) ────────────────────────
+def _journal_dir():  # type: ignore[no-untyped-def]
+    import pathlib  # noqa: PLC0415
+
+    return pathlib.Path("data") / "journal"
+
+
+def _list_journal_dates() -> list[str]:
+    d = _journal_dir()
+    if not d.exists():
+        return []
+    return sorted(p.stem for p in d.glob("*.json"))
+
+
+def _read_journal(date_str: str):  # type: ignore[no-untyped-def]
+    import json  # noqa: PLC0415
+
+    return json.loads((_journal_dir() / f"{date_str}.json").read_text(encoding="utf-8"))
+
+
+def journal_record_md(as_of: dt.date) -> str:
+    import json  # noqa: PLC0415
+
+    s = _screen(as_of)
+    if s is None:
+        return "❌ 후보 종목을 가져오지 못해 저널을 기록하지 못했습니다."
+    date_str = s["data_date"].isoformat()
+    preds = [
+        {
+            "code": c.snapshot.ticker.code, "name": c.snapshot.ticker.name,
+            "setup": p.setup, "quality": p.quality, "entry": p.entry, "stop": p.stop,
+            "target1": p.target1, "target2": p.target2, "risk_per_share": p.risk_per_share,
+            "reward_risk": p.reward_risk, "stop_pct": p.stop_pct,
+            "price_at_record": c.snapshot.close,
+        }
+        for c, p in s["rows"]
+    ]
+    entry = {"date": date_str, "regime": s["regime"], "scanned": s["scanned"], "predictions": preds}
+    d = _journal_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{date_str}.json").write_text(json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    lines = [
+        f"# 📓 데일리 저널 — {date_str}",
+        f"- 시장 레짐: **{s['regime']}** | 스캔 {s['scanned']}종목 → 셋업 {len(preds)}건",
+        "",
+        "## 오늘의 예측(매수 셋업)",
+    ]
+    if not preds:
+        lines.append("- 셋업 없음 — 관망 (예측 없음)")
+    else:
+        lines += ["| 종목 | 셋업 | 기록가 | 진입 | 손절 | 목표 |", "|---|---|---|---|---|---|"]
+        for p in preds:
+            lines.append(
+                f"| {p['name']}({p['code']}) | {p['setup']} | {p['price_at_record']:,} "
+                f"| {p['entry']:,} | {p['stop']:,} | {p['target1']:,} |"
+            )
+    (d / f"{date_str}.md").write_text("\n".join(lines), encoding="utf-8")
+    return "\n".join(lines) + f"\n\n_저장: data/journal/{date_str}.(json|md). 다음 거래일에 `/k-journal review`로 검증._"
+
+
+def journal_review_md(as_of: dt.date) -> str:
+    from datetime import date as _date  # noqa: PLC0415
+
+    from kor_trading.domain.services.backtest import (  # noqa: PLC0415
+        CostModel,
+        score_open_position,
+    )
+    from kor_trading.domain.values.trade_plan import TradePlan  # noqa: PLC0415
+
+    dates = _list_journal_dates()
+    if not dates:
+        return "기록된 저널이 없습니다. 먼저 `/k-journal record`로 오늘을 기록하세요."
+
+    ohlcv = FdrOhlcvProvider()
+    ref = ohlcv.get_daily_bars("005930", as_of, 5)
+    today_td = ref[-1].date if ref else as_of
+    prior = [d for d in dates if _date.fromisoformat(d) < today_td]
+    if not prior:
+        return f"검증할 이전 저널이 없습니다(최근 기록 {dates[-1]}, 아직 다음 거래일 데이터 없음)."
+    jdate = prior[-1]
+    j = _read_journal(jdate)
+    preds = j["predictions"]
+    if not preds:
+        return f"## 📈 저널 검증 — {jdate} → {today_td.isoformat()}\n\n{jdate}엔 예측(셋업)이 없었습니다(관망). 검증 대상 없음."
+
+    jd = _date.fromisoformat(jdate)
+    rows, hits, closed_r = [], 0, []
+    for p in preds:
+        future = [b for b in ohlcv.get_daily_bars(p["code"], today_td, 40) if b.date > jd]
+        cur = future[-1].close if future else p["price_at_record"]
+        move = (cur - p["price_at_record"]) / p["price_at_record"] * 100
+        if move > 0:
+            hits += 1
+        plan = TradePlan(
+            setup=p["setup"], quality=p["quality"], entry=p["entry"], stop=p["stop"],
+            target1=p["target1"], target2=p["target2"], risk_per_share=p["risk_per_share"],
+            reward_risk=p["reward_risk"], stop_pct=p["stop_pct"], rationale="", invalidation="",
+        )
+        out = score_open_position(plan, future, max_hold=20, cost=CostModel())
+        if out.r_multiple is not None:
+            closed_r.append(out.r_multiple)
+        rows.append((p, cur, move, out))
+
+    md = [
+        f"## 📈 저널 검증 — {jdate} 예측 → {today_td.isoformat()} 실제",
+        f"- 기록일 레짐: {j['regime']} | 예측 {len(preds)}건",
+        "",
+        "| 종목 | 셋업 | 기록가 | 현재가 | 변화 | 방향 | 상태 |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    smark = {"win": "🟢 목표달성", "loss": "🔴 손절", "timeout": "🟡 만기", "open": "⏳ 진행중"}
+    for p, cur, move, out in rows:
+        r_s = f" ({out.r_multiple:+.2f}R)" if out.r_multiple is not None else ""
+        md.append(
+            f"| {p['name']}({p['code']}) | {p['setup']} | {p['price_at_record']:,} | {cur:,} "
+            f"| {move:+.1f}% | {'✅' if move > 0 else '❌'} | {smark.get(out.status, out.status)}{r_s} |"
+        )
+    md.append("")
+    md.append(f"**방향 적중**: {hits}/{len(preds)} ({hits / len(preds) * 100:.0f}%)")
+    if closed_r:
+        wins = sum(1 for r in closed_r if r > 0)
+        md.append(
+            f"**청산 {len(closed_r)}건**: 승률 {wins / len(closed_r) * 100:.0f}% · "
+            f"평균 {sum(closed_r) / len(closed_r):+.2f}R"
+        )
+    md.append("")
+    md.append("_방향 적중(1일~며칠)은 노이즈가 큼 — 셋업의 진짜 성과는 목표/손절 도달(상태)로 판단._")
+    return "\n".join(md)
 
 
 # ──────────────────────── 무버스(급등·급락·거래량) ────────────────────────
